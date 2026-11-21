@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+npm-debug.log
+frontend/dist
+.env
+**/.env
+.git
+.idea
+*.pdf
+*.docx

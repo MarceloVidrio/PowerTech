@@ -1,0 +1,38 @@
+import { defineStore } from "pinia";
+import axios from "axios";
+import { ref } from "vue";
+
+export const useAlarmStore = defineStore("alarm", () => {
+  const API_BASE = "/alarm";
+  const alarmas = ref([]);
+  const loading = ref(false);
+
+  const listarAlarmas = ({ id, onComplete, onError }) => {
+    loading.value = true;
+    axios
+      .get(`${API_BASE}/user/${id}`)
+      .then((res) => {
+        alarmas.value = res.data.data;
+        if (onComplete) onComplete(res);
+      })
+      .catch(onError)
+      .finally(() => (loading.value = false));
+  };
+
+  const atenderAlarma = ({ id, onComplete, onError }) => {
+    loading.value = true;
+    axios
+      .patch(`${API_BASE}/${id}/estado`, { estado: 'ATENDIDA' }).then((res) => {
+        if (onComplete) onComplete(res);
+      })
+      .catch(onError)
+      .finally(() => (loading.value = false));
+  };
+
+  return {
+    alarmas,
+    loading,
+    listarAlarmas,
+    atenderAlarma
+  };
+});
