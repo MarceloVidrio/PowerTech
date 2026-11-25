@@ -17,6 +17,7 @@ function getPool() {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    dateStrings: ['DATE'], // las fechas sin hora llegan como 'YYYY-MM-DD' (sin cambios por zona horaria)
   };
   if (config.db.ssl) {
     opciones.ssl = { ca: fs.readFileSync(config.db.sslCa), rejectUnauthorized: true };

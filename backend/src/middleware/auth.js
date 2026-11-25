@@ -1,7 +1,7 @@
 // Autenticación y autorización.
 //  requireAuth   → exige "Authorization: Bearer <token>", comprueba que la cuenta
 //                  siga existiendo y activa, y deja req.user (con el rol actual).
-//  requireRole   → limita la ruta a ciertos roles (SUPERADMIN, ADMIN o TECNICO).
+//  requireRole   → limita la ruta a ciertos roles (SUPERADMIN, TITULAR o FAMILIAR).
 //  sameUserParam → el :id de la URL debe ser el del usuario autenticado.
 const db = require('../config/db');
 const { verifyToken } = require('../utils/security');
@@ -23,16 +23,21 @@ async function requireAuth(req, res, next) {
     const u = rows[0];
     if (!u) return next(unauthorized());
     if (!u.activo) return next(unauthorized('Tu cuenta está desactivada. Contacta al administrador.'));
-    // owner = cuenta dueña de la información (el admin de la PyME).
-    req.user = { id: u.idUsuario, owner: u.idPropietario || u.idUsuario, rol: u.rol || 'ADMIN', nombre: u.nombre };
+    // owner = cuenta dueña de la información del hogar (el titular).
+    req.user = { id: u.idUsuario, owner: u.idPropietario || u.idUsuario, rol: u.rol || 'TITULAR', nombre: u.nombre };
     next();
   } catch (e) {
     next(e);
   }
 }
 
-const requireRole = (...roles) => (req, res, next) =>
-  roles.includes(req.user && req.user.rol) ? next() : next(forbidden());
+const requireRole = (...roles) => (req, res, next) => {
+  if (roles.includes(req.user && req.user.rol)) return next();
+  // A un familiar se le explica por qué no puede hacer cambios
+  next(forbidden(req.user && req.user.rol === 'FAMILIAR'
+    ? 'Solo el titular del hogar puede hacer cambios; tu cuenta es de consulta.'
+    : undefined));
+};
 
 function sameUserParam(param = 'id') {
   return (req, res, next) => {

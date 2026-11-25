@@ -7,10 +7,11 @@ export const useAlarmStore = defineStore("alarm", () => {
   const alarmas = ref([]);
   const loading = ref(false);
 
-  const listarAlarmas = ({ id, onComplete, onError }) => {
+  // Avisos del hogar (el backend sabe de qué hogar por la sesión)
+  const listarAlarmas = ({ onComplete, onError } = {}) => {
     loading.value = true;
     axios
-      .get(`${API_BASE}/user/${id}`)
+      .get(API_BASE)
       .then((res) => {
         alarmas.value = res.data.data;
         if (onComplete) onComplete(res);

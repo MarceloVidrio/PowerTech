@@ -29,12 +29,9 @@ app.use(express.json({ limit: '100kb' }));
 app.use('/user', require('./routes/userRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/alarm', require('./routes/alarmRoutes'));
-app.use('/building', require('./routes/buildingRoutes'));
-app.use('/report', require('./routes/VISTA_REPORTE_SALARoutes'));
-app.use('/room', require('./routes/roomRoutes'));
-app.use('/sensor', require('./routes/sensorRoutes'));
-app.use('/device', require('./routes/deviceRoutes'));
-app.use('/monitoring', require('./routes/monitoringRoutes'));
+app.use('/api/hogar', require('./routes/hogarRoutes'));
+app.use('/api/aparatos', require('./routes/aparatoRoutes'));
+app.use('/api/consumo', require('./routes/consumoRoutes'));
 app.use('/lecturas', require('./routes/lecturaRoutes'));
 app.use('/events', require('./routes/eventsRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
@@ -55,7 +52,8 @@ app.use(errorHandler);
 
 if (require.main === module) {
   probarConexion();
-  app.listen(config.port, () => console.log(`Servidor de PowerTech corriendo en el puerto ${config.port}`));
+  require('./services/programador').iniciar(); // apagado automático con enchufes inteligentes
+  app.listen(config.port, () => console.log(`Servidor de PowerTech Hogar corriendo en el puerto ${config.port}`));
 }
 
 module.exports = app;

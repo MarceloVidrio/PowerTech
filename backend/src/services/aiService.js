@@ -264,167 +264,92 @@ async function generarContenidoSeguro(prompt) {
   );
 }
 // ============================================================
-// CONSULTAS A MYSQL
-// Todas reciben "owner" (la cuenta del usuario que pregunta) y
-// filtran por ella: PowerBot nunca ve datos de otras empresas.
+// DATOS DEL HOGAR
+// Todas las consultas reciben "owner" (el titular del hogar de quien
+// pregunta) y filtran por él: PowerBot nunca ve datos de otras casas.
 // ============================================================
 
-const query = (sql, params = []) => db.query(sql, params);
+const own = require("./ownership");
+const { resumenPeriodo, estimarAparatos } = require("./consumoService");
+const { describirTarifa } = require("./tarifaCFE");
 
-// 1. EDIFICIOS
-async function obtenerEdificios(owner) {
-  return query(`
-    SELECT codigoEdificio, nombreEdificio, horarioEntrada, horarioSalida
-    FROM EDIFICIOS WHERE idUsuario = ? ORDER BY nombreEdificio`, [owner]);
-}
-
-// 2. SALAS
-async function obtenerSalas(owner, codigoEdificio = null) {
-  return query(`
-    SELECT s.codigoSala, s.nombreSala, s.codigoEdificio, e.nombreEdificio
-    FROM SALAS s JOIN EDIFICIOS e ON s.codigoEdificio = e.codigoEdificio
-    WHERE e.idUsuario = ? ${codigoEdificio ? 'AND s.codigoEdificio = ?' : ''}
-    ORDER BY e.nombreEdificio, s.nombreSala`, codigoEdificio ? [owner, codigoEdificio] : [owner]);
-}
-
-// 3. DISPOSITIVOS
-async function obtenerDispositivos(owner, codigoSala = null) {
-  return query(`
-    SELECT d.codigoDispositivo, d.nombre, d.marca,
-           CASE d.tipo WHEN 'A' THEN 'Aire acondicionado' ELSE 'Computadora' END AS tipo,
-           d.codigoSala, s.nombreSala, e.codigoEdificio, e.nombreEdificio
-    FROM DISPOSITIVOS d
-    JOIN SALAS s ON d.codigoSala = s.codigoSala
-    JOIN EDIFICIOS e ON s.codigoEdificio = e.codigoEdificio
-    WHERE e.idUsuario = ? ${codigoSala ? 'AND d.codigoSala = ?' : ''}
-    ORDER BY e.nombreEdificio, s.nombreSala, d.nombre`, codigoSala ? [owner, codigoSala] : [owner]);
-}
-
-// 4. SENSORES
-async function obtenerSensores(owner, codigoSensor = null) {
-  return query(`
-    SELECT se.codigoSensor, se.nombreSensor, se.tipoSensor, se.unidadMedida, se.umbralBajo, se.umbralAlto, se.activo,
-           d.codigoDispositivo, d.nombre AS nombreDispositivo, s.codigoSala, s.nombreSala, e.codigoEdificio, e.nombreEdificio
-    FROM SENSORES se
-    LEFT JOIN DISPOSITIVOS d ON se.codigoDispositivo = d.codigoDispositivo
-    LEFT JOIN SALAS s ON d.codigoSala = s.codigoSala
-    LEFT JOIN EDIFICIOS e ON s.codigoEdificio = e.codigoEdificio
-    WHERE se.idUsuario = ? ${codigoSensor ? 'AND se.codigoSensor = ?' : ''}
-    ORDER BY e.nombreEdificio, s.nombreSala, se.nombreSensor`, codigoSensor ? [owner, codigoSensor] : [owner]);
-}
-
-// 5. ÚLTIMAS LECTURAS
-async function obtenerLecturas(owner, codigoSensor = null, limite = 50) {
-  return query(`
-    SELECT l.codigoSensor, l.fechaHora, l.valor, l.detalle, se.nombreSensor, se.unidadMedida, se.umbralBajo, se.umbralAlto
-    FROM LECTURAS l JOIN SENSORES se ON l.codigoSensor = se.codigoSensor
-    WHERE se.idUsuario = ? ${codigoSensor ? 'AND l.codigoSensor = ?' : ''}
-    ORDER BY l.fechaHora DESC LIMIT ?`, codigoSensor ? [owner, codigoSensor, limite] : [owner, limite]);
-}
-
-// 6. ALARMAS
-async function obtenerAlarmas(owner, estado = null) {
-  return query(`
-    SELECT a.codigoAlarma, a.codigoEdificio, e.nombreEdificio, a.codigoSala, s.nombreSala,
-           a.codigoSensor, se.nombreSensor, a.tipoAlarma, a.nivel, a.estado, a.fechaHora, a.detalle
-    FROM ALARMAS a
-    JOIN EDIFICIOS e ON a.codigoEdificio = e.codigoEdificio
-    JOIN SALAS s ON a.codigoSala = s.codigoSala
-    JOIN SENSORES se ON a.codigoSensor = se.codigoSensor
-    WHERE e.idUsuario = ? ${estado ? 'AND a.estado = ?' : ''}
-    ORDER BY a.fechaHora DESC LIMIT 100`, estado ? [owner, estado] : [owner]);
-}
-
-// 7. REPORTE DE SALA
-async function obtenerReporteSala(owner, codigoSala) {
-  return query(`
-    SELECT v.codigoSala, v.nombreSala, v.codigoEdificio, v.nombreEdificio, v.indice_operatividad,
-           v.total_dispositivos, v.alarmas_activas, v.cant_computadoras, v.cant_aires
-    FROM VISTA_REPORTE_SALA v JOIN EDIFICIOS e ON e.codigoEdificio = v.codigoEdificio
-    WHERE v.codigoSala = ? AND e.idUsuario = ?`, [codigoSala, owner]);
-}
-
-// 8. ANÁLISIS DE SENSOR
-async function analizarSensor(owner, codigoSensor) {
-  const sensorRows = await obtenerSensores(owner, codigoSensor);
-  if (!sensorRows.length) return { encontrado: false, mensaje: `No existe el sensor ${codigoSensor}.` };
-  const sensor = sensorRows[0];
-  const lecturas = await obtenerLecturas(owner, codigoSensor, 100);
-  const analisis = {
-    sensor, lecturas, totalLecturas: lecturas.length, valorActual: null, valorAnterior: null,
-    diferencia: null, porcentajeCambio: null, demandaMaxima: null, superaUmbral: false,
-  };
-  if (lecturas.length) {
-    const ordenadas = [...lecturas].sort((a, b) => new Date(a.fechaHora) - new Date(b.fechaHora));
-    analisis.valorActual = Number(ordenadas[ordenadas.length - 1].valor);
-    if (ordenadas.length >= 2) {
-      analisis.valorAnterior = Number(ordenadas[ordenadas.length - 2].valor);
-      analisis.diferencia = analisis.valorActual - analisis.valorAnterior;
-      if (analisis.valorAnterior !== 0) analisis.porcentajeCambio = (analisis.diferencia / Math.abs(analisis.valorAnterior)) * 100;
-    }
-    analisis.demandaMaxima = Math.max(...ordenadas.map((l) => Number(l.valor)));
-    analisis.superaUmbral = sensor.umbralAlto !== null && analisis.valorActual > Number(sensor.umbralAlto);
+async function obtenerHogar(owner) {
+  try {
+    return await own.hogar(owner);
+  } catch {
+    return null;
   }
-  return analisis;
 }
 
-// 9. DETECCIÓN DE ANOMALÍAS
-async function detectarAnomalias(owner) {
-  const sensores = await obtenerSensores(owner);
-  const resultados = [];
-  for (const sensor of sensores) {
-    const lecturas = await obtenerLecturas(owner, sensor.codigoSensor, 20);
-    if (!lecturas.length) {
-      resultados.push({ tipo: 'SIN_DATOS', sensor: sensor.codigoSensor, nombreSensor: sensor.nombreSensor, mensaje: 'El sensor no tiene lecturas registradas.' });
-      continue;
-    }
-    const ultima = lecturas[0];
-    if (sensor.umbralAlto !== null && Number(ultima.valor) > Number(sensor.umbralAlto)) {
-      resultados.push({ tipo: 'UMBRAL_ALTO', sensor: sensor.codigoSensor, nombreSensor: sensor.nombreSensor, valor: Number(ultima.valor), umbral: Number(sensor.umbralAlto), unidad: sensor.unidadMedida });
-    }
-    if (sensor.umbralBajo !== null && Number(ultima.valor) < Number(sensor.umbralBajo)) {
-      resultados.push({ tipo: 'UMBRAL_BAJO', sensor: sensor.codigoSensor, nombreSensor: sensor.nombreSensor, valor: Number(ultima.valor), umbral: Number(sensor.umbralBajo), unidad: sensor.unidadMedida });
-    }
-  }
-  return { anomalíasDetectadas: resultados, alarmasActivas: await obtenerAlarmas(owner, 'ACTIVA') };
+async function obtenerAparatos(idHogar) {
+  return db.query(
+    "SELECT nombre, tipo, cuarto, potenciaW, horasDia, controlUrl IS NOT NULL AS conEnchufe FROM APARATOS WHERE idHogar = ? ORDER BY cuarto, nombre",
+    [idHogar]);
 }
 
-// 10. RESUMEN GENERAL
-async function obtenerResumenGeneral(owner) {
-  return {
-    edificios: await obtenerEdificios(owner),
-    salas: await obtenerSalas(owner),
-    dispositivos: await obtenerDispositivos(owner),
-    sensores: await obtenerSensores(owner),
-    alarmasActivas: await obtenerAlarmas(owner, 'ACTIVA'),
-    ultimasLecturas: await obtenerLecturas(owner, null, 30),
+async function obtenerAlarmas(idHogar, estado = null) {
+  return db.query(`
+    SELECT tipoAlarma, nivel, estado, fechaHora, detalle FROM ALARMAS
+    WHERE idHogar = ? ${estado ? "AND estado = ?" : ""}
+    ORDER BY fechaHora DESC LIMIT 30`, estado ? [idHogar, estado] : [idHogar]);
+}
+
+// Potencia promedio por hora de las últimas 24 h (W)
+async function obtenerUltimas24h(codigoMedidor) {
+  if (!codigoMedidor) return [];
+  return db.query(`
+    SELECT DATE_FORMAT(fechaHora, '%Y-%m-%d %H:00') AS hora, ROUND(AVG(valor)) AS promedioW, ROUND(MAX(valor)) AS maximoW
+    FROM LECTURAS WHERE codigoMedidor = ? AND fechaHora >= NOW() - INTERVAL 24 HOUR
+    GROUP BY DATE_FORMAT(fechaHora, '%Y-%m-%d %H:00') ORDER BY hora`, [codigoMedidor]);
+}
+
+async function contextoDelHogar(owner, texto) {
+  const h = await obtenerHogar(owner);
+  if (!h) return { hogar: null, nota: "El titular todavía no configura su hogar en PowerTech." };
+
+  const contexto = {
+    hogar: {
+      nombre: h.nombre, ciudad: h.ciudad, tarifaCFE: h.tarifa, personas: h.personas,
+      metaBimestralKwh: h.metaBimestralKwh, modoVacaciones: !!h.modoVacaciones,
+      horasDeSueno: `${String(h.horaDormirInicio).slice(0, 5)}–${String(h.horaDormirFin).slice(0, 5)}`,
+      consumoMinimoW: Number(h.consumoBaseW), consumoNormalNocheW: Number(h.consumoNocheW), limiteConsumoAltoW: Number(h.umbralAltoW),
+      medidor: h.codigoMedidor ? { codigo: h.codigoMedidor, activo: !!h.medidorActivo } : "sin medidor registrado",
+    },
   };
+  const aparatos = await obtenerAparatos(h.idHogar);
+  contexto.aparatos = aparatos;
+
+  if (h.codigoMedidor) {
+    const r = await resumenPeriodo(h, h.codigoMedidor);
+    contexto.bimestreActual = {
+      periodo: r.periodo, consumidoKwh: r.consumido, promedioDiarioKwh: r.promedioDiario,
+      pronosticoCierreKwh: r.proyeccion, pronosticoConfiable: r.confiable,
+      reciboEstimadoHastaHoy: r.reciboActual.total, reciboEstimadoAlCierre: r.reciboProyectado.total,
+      escalonActual: r.reciboProyectado.escalonActual, escalones: r.reciboProyectado.escalones,
+      riesgoDAC: r.dac, meta: r.meta,
+    };
+  }
+  contexto.consumoEstimadoPorAparato = estimarAparatos(aparatos);
+
+  const t = texto.toLowerCase();
+  const menciona = (...palabras) => palabras.some((p) => t.includes(p));
+  if (menciona("hoy", "ahorita", "ahora", "noche", "madrugada", "hora", "pico", "potencia", "watt", "gráfica", "grafica", "24")) {
+    contexto.ultimas24hPorHora = await obtenerUltimas24h(h.codigoMedidor);
+  }
+  if (menciona("aviso", "alarma", "alerta", "problema", "por qué", "porque")) {
+    contexto.avisos = await obtenerAlarmas(h.idHogar);
+  } else {
+    contexto.avisosActivos = await obtenerAlarmas(h.idHogar, "ACTIVA");
+  }
+  if (menciona("tarifa", "recibo", "escalón", "escalon", "dac", "subsidio", "precio", "cobra", "pagar", "cuesta")) {
+    contexto.tarifa = describirTarifa(h.tarifa, h.mesInicioVerano);
+  }
+  return contexto;
 }
 
 
 // ============================================================
-// 11. CONSEJO DE AHORRO
-// ============================================================
-
-async function generarConsejoAhorro(datosEdificio) {
-
-  const prompt = `
-Actúa como asesor energético de PowerTech.
-
-Datos:
-${JSON.stringify(datosEdificio, null, 2)}
-
-Genera un consejo energético práctico.
-Máximo 3 líneas.
-No inventes datos.
-`;
-
-  return await generarContenidoSeguro(prompt);
-}
-
-
-// ============================================================
-// 12. POWERBOT
+// POWERBOT
 // ============================================================
 
 async function obtenerConsejoPowerBot(consulta, owner) {
@@ -432,182 +357,37 @@ async function obtenerConsejoPowerBot(consulta, owner) {
   if (!owner) throw new Error("PowerBot requiere el usuario que consulta");
 
   if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) {
-  throw new Error(
-    "No existe GEMINI_API_KEY ni GROQ_API_KEY en el archivo .env"
-  );
+    throw new Error("No existe GEMINI_API_KEY ni GROQ_API_KEY en el archivo .env");
   }
 
   const pregunta = consulta.trim();
-
-  let contexto = {};
-
-  // ==========================================================
-  // DETECCIÓN INTELIGENTE DE LA CONSULTA
-  // ==========================================================
-
-  const texto = pregunta.toLowerCase();
-
-
-  // ----------------------------------------------------------
-  // EDIFICIOS
-  // ----------------------------------------------------------
-
-  if (
-    texto.includes("edificio") ||
-    texto.includes("edificios")
-  ) {
-
-    contexto.edificios = await obtenerEdificios(owner);
-  }
-
-
-  // ----------------------------------------------------------
-  // SALAS
-  // ----------------------------------------------------------
-
-  if (
-    texto.includes("sala") ||
-    texto.includes("salas")
-  ) {
-
-    contexto.salas = await obtenerSalas(owner);
-  }
-
-
-  // ----------------------------------------------------------
-  // DISPOSITIVOS
-  // ----------------------------------------------------------
-
-  if (
-    texto.includes("dispositivo") ||
-    texto.includes("dispositivos") ||
-    texto.includes("equipo") ||
-    texto.includes("equipos")
-  ) {
-
-    contexto.dispositivos = await obtenerDispositivos(owner);
-  }
-
-
-  // ----------------------------------------------------------
-  // SENSORES
-  // ----------------------------------------------------------
-
-  if (
-    texto.includes("sensor") ||
-    texto.includes("sensores")
-  ) {
-
-    contexto.sensores = await obtenerSensores(owner);
-  }
-
-
-  // ----------------------------------------------------------
-  // LECTURAS / CONSUMO / DEMANDA
-  // ----------------------------------------------------------
-
-  if (
-    texto.includes("lectura") ||
-    texto.includes("lecturas") ||
-    texto.includes("consumo") ||
-    texto.includes("demanda") ||
-    texto.includes("energía") ||
-    texto.includes("energia") ||
-    texto.includes("potencia") ||
-    texto.includes("watt") ||
-    texto.includes("watts") ||
-    texto.includes("kw") ||
-    texto.includes("kwh")
-  ) {
-
-    contexto.lecturas = await obtenerLecturas(owner, null, 50);
-  }
-
-
-  // ----------------------------------------------------------
-  // ALARMAS / ANOMALÍAS
-  // ----------------------------------------------------------
-
-  if (
-    texto.includes("alarma") ||
-    texto.includes("alarmas") ||
-    texto.includes("alerta") ||
-    texto.includes("alertas") ||
-    texto.includes("anomalía") ||
-    texto.includes("anomalia") ||
-    texto.includes("problema")
-  ) {
-
-    contexto.alarmas = await obtenerAlarmas(owner);
-    contexto.anomalias = await detectarAnomalias(owner);
-  }
-
-
-  // ----------------------------------------------------------
-  // REPORTE
-  // ----------------------------------------------------------
-
-  if (
-    texto.includes("reporte") ||
-    texto.includes("operatividad")
-  ) {
-
-    contexto.reportes = await obtenerResumenGeneral(owner);
-  }
-
-
-  // ----------------------------------------------------------
-  // SI NO IDENTIFICAMOS UNA CATEGORÍA
-  // ----------------------------------------------------------
-
-  if (Object.keys(contexto).length === 0) {
-
-    contexto = await obtenerResumenGeneral(owner);
-  }
-
-
-  // ==========================================================
-  // IA
-  // ==========================================================
+  const contexto = await contextoDelHogar(owner, pregunta);
 
   const prompt = `
-Eres **PowerBot**, el asistente inteligente oficial de la
-plataforma **PowerTech**.
-
-Tu objetivo es ayudar al administrador a comprender,
-analizar y utilizar PowerTech.
+Eres **PowerBot**, el asistente de **PowerTech Hogar**, una app que ayuda a
+las familias mexicanas a entender y bajar su recibo de luz de CFE.
 
 ============================================================
-FUNCIONAMIENTO DE POWERTECH
+CÓMO FUNCIONA POWERTECH HOGAR
 ============================================================
 
-PowerTech administra infraestructura energética mediante:
-
-USUARIO
-→ EDIFICIO
-→ SALA
-→ DISPOSITIVO
-→ SENSOR
-→ LECTURA
-
-Las lecturas pueden generar automáticamente ALARMAS cuando
-superan el umbral configurado en el sensor.
-
-Las alarmas tienen estados:
-
-- ACTIVA
-- ATENDIDA
-- CERRADA
-
-PowerTech también genera reportes de las salas y presenta
-información energética mediante el módulo de monitoreo.
+- Un sensor (por ejemplo Sonoff POW Ring) instalado en la pastilla principal
+  del centro de carga (no en el medidor de CFE) mide la potencia TOTAL de la casa (W) y la envía cada pocos segundos.
+- Con esas lecturas la app calcula la energía (kWh), el consumo del bimestre,
+  un pronóstico al cierre y el recibo estimado con la tarifa doméstica de CFE.
+- El sensor NO sabe qué aparato consume: el consumo por aparato es una
+  ESTIMACIÓN hecha con la potencia y las horas de uso que capturó la familia.
+- CFE cobra por escalones (básico, intermedio, excedente). En las tarifas
+  1A–1F los escalones son más amplios en los 6 meses de verano. Si el promedio
+  mensual de 12 meses supera el límite de la tarifa, la casa pasa a DAC (sin subsidio).
+- Avisos: consumo alto, consumo en horas de sueño, consumo en modo vacaciones,
+  meta bimestral en riesgo y riesgo de tarifa DAC.
+- Los aparatos con enchufe inteligente se pueden apagar desde la app y apagarse
+  solos al dormir o al activar el modo vacaciones.
 
 ============================================================
-BASE DE DATOS REAL
+DATOS REALES DE ESTA CASA
 ============================================================
-
-Estos son los datos que PowerBot ha consultado para responder
-la pregunta actual:
 
 ${JSON.stringify(contexto, null, 2)}
 
@@ -615,88 +395,26 @@ ${JSON.stringify(contexto, null, 2)}
 REGLAS
 ============================================================
 
-1. Utiliza los datos proporcionados.
-
-2. NO inventes información.
-
-3. Si algo no aparece en la base de datos, dilo.
-
-4. Las lecturas almacenadas en W representan POTENCIA.
-
-5. W NO es lo mismo que kWh.
-
-6. Para hablar de energía consumida en kWh se necesita considerar
-   el tiempo transcurrido entre lecturas.
-
-7. Si existe un umbral alto y una lectura lo supera,
-   indícalo claramente.
-
-8. Si existe una alarma relacionada, explica la relación.
-
-9. Cuando sea útil, muestra:
-   - edificio
-   - sala
-   - dispositivo
-   - sensor
-   - lectura
-   - umbral
-   - alarma
-
-10. Si el usuario pregunta "¿por qué?", explica la cadena de
-    acontecimientos usando los datos disponibles.
-
-11. Si el usuario pregunta cómo funciona una sección de PowerTech,
-    explica su funcionamiento de forma sencilla.
-
-12. Si pregunta sobre los recibos, recuerda que PowerTech muestra
-    una representación didáctica y no un recibo oficial de CFE.
-
-13. Responde siempre en español.
-
-14. Utiliza Markdown de forma sencilla y visual.
-
-15. Utiliza **negritas** para valores importantes.
-
-16. NO utilices tablas Markdown.
-
-17. Para listas de edificios, salas, dispositivos, sensores o alarmas,
-    utiliza listas con viñetas.
-
-18. Utiliza títulos pequeños y claros. Evita títulos excesivamente grandes.
-
-19. Mantén las respuestas fáciles de leer dentro de un panel lateral
-    de aproximadamente 400 píxeles de ancho.
-
-20. Evita párrafos largos.
-
-21. Separa la información en bloques cortos.
-
-22. Cuando muestres varios registros, utiliza este formato:
-
-    **Código — Nombre**
-    - Dato: valor
-    - Dato: valor
-
-23. Cuando exista un total, muéstralo al principio.
-
-24. No repitas información innecesariamente.
-
-25. No inventes emojis. Úsalos solamente cuando ayuden a identificar
-    visualmente una categoría.
-
-26. No seas innecesariamente largo.
-
-27. Si la pregunta requiere explicación, puedes extenderte.
+1. Usa solo estos datos; no inventes cifras. Si algo no está, dilo.
+2. W es potencia y kWh es energía; no los confundas.
+3. Aclara que el recibo es una ESTIMACIÓN; el oficial lo emite CFE.
+4. Da consejos de ahorro prácticos para una casa en México (minisplit a 24–25 °C,
+   limpiar filtros, refrigerador, "consumo fantasma", horarios de uso, etc.),
+   relacionados con los datos cuando sea posible.
+5. Si preguntan cómo usar una sección de la app, explícalo de forma sencilla.
+6. Responde siempre en español, en tono amable y cercano.
+7. Markdown sencillo: **negritas** para cifras importantes, listas con viñetas,
+   títulos pequeños. NO uses tablas.
+8. Respuestas cortas y fáciles de leer en un panel de unos 400 px.
 
 ============================================================
-PREGUNTA DEL ADMINISTRADOR
+PREGUNTA
 ============================================================
 
 ${pregunta}
 
 Responde directamente.
 `;
-
 
   return await generarContenidoSeguro(prompt);
 }
@@ -707,16 +425,6 @@ Responde directamente.
 // ============================================================
 
 module.exports = {
-  generarConsejoAhorro,
   obtenerConsejoPowerBot,
-  obtenerEdificios,
-  obtenerSalas,
-  obtenerDispositivos,
-  obtenerSensores,
-  obtenerLecturas,
-  obtenerAlarmas,
-  obtenerReporteSala,
-  analizarSensor,
-  detectarAnomalias,
-  obtenerResumenGeneral
+  contextoDelHogar,
 };

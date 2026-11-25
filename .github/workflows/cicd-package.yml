@@ -1,0 +1,103 @@
+name: Node.js CI with Docker
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    environment: QA
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: '**/package-lock.json'
+
+    - name: Pruebas del backend
+      run: |
+        cd backend
+        npm ci
+        npm test
+
+    - name: Pruebas del frontend
+      run: |
+        cd frontend
+        npm ci
+        npm test
+
+  package:
+    runs-on: ubuntu-latest
+    environment: Staging
+    needs: [test]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: '**/package-lock.json'
+
+    - name: Install Frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Build Vue App
+      run: |
+        cd frontend
+        npm run build
+
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: vue-build
+        path: frontend/dist
+
+  docker-hub:
+    runs-on: ubuntu-latest
+    environment: Production
+    needs: [package]
+    if: github.event_name == 'push'
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build & Push Docker image to Docker Hub
+      uses: mr-smithers-excellent/docker-build-push@v5
+      with:
+        image: jesusvelazquezmx/powertech
+        tags: latest, ${{ github.sha }}
+        registry: docker.io
+        dockerfile: Dockerfile
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+  deploy:
+      runs-on: ubuntu-latest
+      environment: Production
+      needs: [docker-hub]
+      if: github.event_name == 'push'
+      steps:
+        - name: Conectar a AWS y actualizar Docker
+          uses: appleboy/ssh-action@v1.2.0
+          with:
+            host: ${{ secrets.AWS_HOST }}
+            username: ubuntu
+            key: ${{ secrets.AWS_SSH_KEY }}
+            script: |
+              set -e
+              # Los secretos viven en el servidor (/home/ubuntu/powertech.env), nunca en git
+              # ni en la imagen. Ver backend/.env.example para las variables necesarias.
+              test -f /home/ubuntu/powertech.env || { echo "Falta /home/ubuntu/powertech.env"; exit 1; }
+              sudo docker pull jesusvelazquezmx/powertech:latest
+              sudo docker rm -f powertech || true
+              sudo docker run --name powertech -d --restart unless-stopped \
+                --env-file /home/ubuntu/powertech.env \
+                -p 3000:3000 jesusvelazquezmx/powertech:latest
+              sudo docker image prune -f

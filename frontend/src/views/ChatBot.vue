@@ -191,7 +191,7 @@
             <span
               class="text-caption text-grey-darken-1 font-italic"
             >
-              Analizando información de PowerTech...
+              Revisando el consumo de tu casa...
             </span>
 
           </div>
@@ -315,11 +315,11 @@ const chatContainer = ref(null);
 
 const sugerenciasRapidas = [
 
-  "Analizar el pico de demanda de hoy",
+  "¿Cuánto voy a pagar este bimestre?",
 
-  "¿Cómo va mi Factor de Potencia?",
+  "¿Qué aparato gasta más en mi casa?",
 
-  "Proyectar recibo de este mes"
+  "Dame 3 consejos para bajar mi recibo"
 
 ];
 
@@ -334,7 +334,7 @@ const mensajes = ref([
     id: 1,
 
     texto:
-      '¡Hola! Soy **PowerBot**. Estoy monitoreando continuamente la base de datos y los sensores. ¿En qué te ayudo hoy?',
+      '¡Hola! Soy **PowerBot**. Conozco el consumo de tu casa y tu tarifa de CFE. ¿En qué te ayudo?',
 
     esBot: true
   }

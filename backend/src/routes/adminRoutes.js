@@ -8,7 +8,7 @@ router.use(requireAuth, requireRole('SUPERADMIN'));
 
 router.get('/resumen', c.resumen);
 router.get('/bitacora', c.bitacora);
-router.get('/empresas', c.listarEmpresas);
+router.get('/titulares', c.listarTitulares);
 
 router.get('/usuarios', c.listarUsuarios);
 router.post('/usuarios', c.crearUsuario);
@@ -18,7 +18,7 @@ router.delete('/usuarios/:id', c.eliminarUsuario);
 router.post('/usuarios/:id/contrasena', c.restablecerContrasena);
 router.post('/usuarios/:id/desbloquear', c.desbloquear);
 
-router.patch('/sensores/:codigo', c.cambiarSensor);
+router.patch('/medidores/:codigo', c.cambiarMedidor);
 router.post('/alarmas/:codigo/cerrar', c.cerrarAlarma);
 
 module.exports = router;

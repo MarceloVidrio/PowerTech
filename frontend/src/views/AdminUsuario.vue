@@ -47,9 +47,9 @@
             :rules="[v => /.+@.+\..+/.test(v || '') || 'Correo no válido']" />
           <v-select v-model="edicion.rol" :items="ROLES" label="Tipo de cuenta" variant="outlined" rounded="lg"
             density="comfortable" :disabled="esYo" :hint="esYo ? 'No puedes cambiar tu propio rol' : ''" persistent-hint />
-          <v-select v-if="edicion.rol === 'TECNICO'" v-model="edicion.idPropietario" :items="empresasElegibles"
-            item-title="nombre" item-value="idUsuario" label="Empresa (administrador)" variant="outlined" rounded="lg"
-            density="comfortable" class="mt-2" :rules="[v => !!v || 'Elige la empresa']" />
+          <v-select v-if="edicion.rol === 'FAMILIAR'" v-model="edicion.idPropietario" :items="titularesElegibles"
+            item-title="nombre" item-value="idUsuario" label="Familia de (titular del hogar)" variant="outlined" rounded="lg"
+            density="comfortable" class="mt-2" :rules="[v => !!v || 'Elige al titular']" />
         </v-form>
         <div class="d-flex mt-2">
           <v-spacer />
@@ -58,58 +58,75 @@
         </div>
       </v-card>
 
-      <!-- Técnicos -->
-      <v-card v-if="u.rol === 'ADMIN'" class="pa-4 mb-4 rounded-xl seccion" elevation="0">
-        <div class="titulo">Técnicos ({{ d.tecnicos.length }})</div>
-        <div v-if="!d.tecnicos.length" class="text-caption text-grey">No tiene técnicos.</div>
-        <div v-for="t in d.tecnicos" :key="t.idUsuario" class="fila" @click="$router.push(`/admin/usuarios/${t.idUsuario}`)">
-          <v-icon color="blue-darken-2" class="mr-2">mdi-account-hard-hat</v-icon>
+      <!-- Familiares -->
+      <v-card v-if="u.rol === 'TITULAR'" class="pa-4 mb-4 rounded-xl seccion" elevation="0">
+        <div class="titulo">Familiares ({{ d.familiares.length }})</div>
+        <div v-if="!d.familiares.length" class="text-caption text-grey">No ha invitado a familiares.</div>
+        <div v-for="t in d.familiares" :key="t.idUsuario" class="fila" @click="$router.push(`/admin/usuarios/${t.idUsuario}`)">
+          <v-icon color="blue-darken-2" class="mr-2">mdi-account-heart-outline</v-icon>
           <div class="flex-grow-1"><div class="text-body-2 font-weight-bold">{{ t.nombre }}</div><div class="text-caption text-grey">{{ t.email }}</div></div>
           <v-chip v-if="!t.activo" size="x-small" color="red" variant="tonal">Desactivada</v-chip>
           <v-icon color="grey">mdi-chevron-right</v-icon>
         </div>
       </v-card>
 
-      <!-- Edificios -->
+      <!-- Hogar -->
       <v-card v-if="u.rol !== 'SUPERADMIN'" class="pa-4 mb-4 rounded-xl seccion" elevation="0">
-        <div class="titulo">Edificios{{ u.rol === 'TECNICO' ? ' de su empresa' : '' }} ({{ d.edificios.length }})</div>
-        <div v-if="!d.edificios.length" class="text-caption text-grey">Sin edificios registrados.</div>
-        <div v-for="e in d.edificios" :key="e.codigoEdificio" class="fila sin-click">
-          <v-icon color="green-darken-2" class="mr-2">mdi-office-building-outline</v-icon>
-          <div class="flex-grow-1">
-            <div class="text-body-2 font-weight-bold">{{ e.nombreEdificio }} <span class="text-caption text-grey">{{ e.codigoEdificio }}</span></div>
-            <div class="text-caption text-grey">{{ hora(e.horarioEntrada) }}–{{ hora(e.horarioSalida) }} · {{ e.salas }} sala(s) · {{ e.dispositivos }} equipo(s)</div>
-          </div>
-        </div>
-      </v-card>
-
-      <!-- Sensores -->
-      <v-card v-if="u.rol !== 'SUPERADMIN'" class="pa-4 mb-4 rounded-xl seccion" elevation="0">
-        <div class="titulo">Sensores ({{ d.sensores.length }})</div>
-        <div v-if="!d.sensores.length" class="text-caption text-grey">Sin sensores registrados.</div>
-        <div v-for="s in d.sensores" :key="s.codigoSensor" class="fila sin-click">
-          <v-icon :color="s.activo ? 'green-darken-2' : 'grey'" class="mr-2">mdi-access-point</v-icon>
-          <div class="flex-grow-1" style="min-width: 0">
-            <div class="text-body-2 font-weight-bold text-truncate">{{ s.nombreSensor }} <span class="text-caption text-grey">{{ s.codigoSensor }}</span></div>
-            <div class="text-caption text-grey">
-              {{ s.dispositivo ? `mide ${s.dispositivo}` : 'sin equipo asignado' }} ·
-              {{ s.ultimaLectura ? `última lectura ${fecha(s.ultimaLectura)}` : 'nunca ha enviado lecturas' }}
+        <div class="titulo">{{ u.rol === 'FAMILIAR' ? 'Hogar de su familia' : 'Hogar' }}</div>
+        <div v-if="!d.hogar" class="text-caption text-grey">Todavía no se configura el hogar.</div>
+        <template v-else>
+          <div class="fila sin-click">
+            <v-icon color="green-darken-2" class="mr-2">mdi-home-outline</v-icon>
+            <div class="flex-grow-1">
+              <div class="text-body-2 font-weight-bold">{{ d.hogar.nombre }}<span v-if="d.hogar.ciudad" class="text-caption text-grey"> · {{ d.hogar.ciudad }}</span></div>
+              <div class="text-caption text-grey">
+                Tarifa {{ d.hogar.tarifa }}<template v-if="d.hogar.personas"> · {{ d.hogar.personas }} persona(s)</template>
+                · duermen {{ d.hogar.horaDormirInicio }}–{{ d.hogar.horaDormirFin }} · límite {{ d.hogar.umbralAltoW }} W
+                <template v-if="d.hogar.modoVacaciones"> · en modo vacaciones</template>
+              </div>
             </div>
           </div>
-          <v-switch :model-value="s.activo" color="green-darken-2" hide-details density="compact" inset
-            :loading="trabajando === s.codigoSensor" @update:model-value="(v) => cambiarSensor(s, v)" />
+          <!-- Medidor -->
+          <div class="fila sin-click">
+            <v-icon :color="d.hogar.medidor?.activo ? 'green-darken-2' : 'grey'" class="mr-2">mdi-current-ac</v-icon>
+            <div class="flex-grow-1" style="min-width: 0">
+              <template v-if="d.hogar.medidor">
+                <div class="text-body-2 font-weight-bold text-truncate">Sensor de consumo <span class="text-caption text-grey">{{ d.hogar.medidor.codigoMedidor }}</span></div>
+                <div class="text-caption text-grey">
+                  {{ d.hogar.medidor.ultimaLectura ? `última lectura ${fecha(d.hogar.medidor.ultimaLectura)}` : 'nunca ha enviado lecturas' }}
+                  · {{ d.hogar.medidor.lecturas24h }} lectura(s) en 24 h
+                </div>
+              </template>
+              <div v-else class="text-body-2 text-grey">Sin sensor registrado</div>
+            </div>
+            <v-switch v-if="d.hogar.medidor" :model-value="d.hogar.medidor.activo" color="green-darken-2" hide-details density="compact" inset
+              :loading="trabajando === d.hogar.medidor.codigoMedidor" @update:model-value="(v) => cambiarMedidor(d.hogar.medidor, v)" />
+          </div>
+        </template>
+      </v-card>
+
+      <!-- Aparatos -->
+      <v-card v-if="d.hogar && u.rol !== 'SUPERADMIN'" class="pa-4 mb-4 rounded-xl seccion" elevation="0">
+        <div class="titulo">Aparatos ({{ d.aparatos.length }})</div>
+        <div v-if="!d.aparatos.length" class="text-caption text-grey">Sin aparatos registrados.</div>
+        <div v-for="a in d.aparatos" :key="a.idAparato" class="fila sin-click">
+          <v-icon color="green-darken-2" class="mr-2">mdi-power-plug-outline</v-icon>
+          <div class="flex-grow-1">
+            <div class="text-body-2 font-weight-bold">{{ a.nombre }}<span v-if="a.cuarto" class="text-caption text-grey"> · {{ a.cuarto }}</span></div>
+            <div class="text-caption text-grey">{{ a.potenciaW ? `${Number(a.potenciaW)} W` : 'sin potencia' }}{{ a.horasDia ? ` · ${Number(a.horasDia)} h/día` : '' }}{{ a.conEnchufe ? ' · con enchufe inteligente' : '' }}</div>
+          </div>
         </div>
       </v-card>
 
-      <!-- Alarmas abiertas -->
+      <!-- Avisos abiertos -->
       <v-card v-if="u.rol !== 'SUPERADMIN'" class="pa-4 mb-4 rounded-xl seccion" elevation="0">
-        <div class="titulo">Alarmas abiertas ({{ d.alarmas.length }})</div>
-        <div v-if="!d.alarmas.length" class="text-caption text-grey">No hay alarmas abiertas.</div>
+        <div class="titulo">Avisos abiertos ({{ d.alarmas.length }})</div>
+        <div v-if="!d.alarmas.length" class="text-caption text-grey">No hay avisos abiertos.</div>
         <div v-for="a in d.alarmas" :key="a.codigoAlarma" class="fila sin-click">
           <v-icon :color="a.nivel >= 4 ? 'red' : 'orange'" class="mr-2">mdi-alert</v-icon>
           <div class="flex-grow-1" style="min-width: 0">
             <div class="text-body-2 font-weight-bold">{{ a.tipoAlarma }} · nivel {{ a.nivel }} <span class="text-caption text-grey">({{ a.estado }})</span></div>
-            <div class="text-caption text-grey text-truncate">{{ a.nombreEdificio }} / {{ a.nombreSala }} · {{ a.codigoSensor }} · {{ fecha(a.fechaHora) }}</div>
+            <div class="text-caption text-grey">{{ fecha(a.fechaHora) }} · {{ a.detalle }}</div>
           </div>
           <v-btn size="small" variant="text" color="green-darken-2" class="text-none" :loading="trabajando === a.codigoAlarma"
             @click="cerrarAlarma(a)">Cerrar</v-btn>
@@ -131,7 +148,7 @@
         <div class="titulo text-red-darken-2">Zona de peligro</div>
         <p class="text-caption mb-3">
           Eliminar la cuenta borra para siempre
-          <template v-if="u.rol === 'ADMIN'">sus {{ u.edificios }} edificio(s), {{ u.sensores }} sensor(es), lecturas, alarmas y sus {{ u.tecnicos }} técnico(s).</template>
+          <template v-if="u.rol === 'TITULAR'">su hogar, su sensor con todas sus lecturas, {{ u.aparatos }} aparato(s), sus avisos y las cuentas de sus {{ u.familiares }} familiar(es).</template>
           <template v-else>el acceso de este usuario.</template>
         </p>
         <v-btn color="red-darken-2" variant="tonal" class="text-none" prepend-icon="mdi-delete-outline" @click="dlgEliminar = true">Eliminar cuenta</v-btn>
@@ -209,18 +226,18 @@ const hora = (h) => String(h || '').slice(0, 5);
 /* Edición de datos */
 const formRef = ref(null);
 const formValido = ref(false);
-const edicion = ref({ nombre: '', email: '', rol: 'ADMIN', idPropietario: null });
-const empresasElegibles = computed(() => admin.empresas.filter((e) => e.idUsuario !== u.value?.idUsuario));
+const edicion = ref({ nombre: '', email: '', rol: 'TITULAR', idPropietario: null });
+const titularesElegibles = computed(() => admin.titulares.filter((e) => e.idUsuario !== u.value?.idUsuario));
 const hayCambios = computed(() => !!u.value && (
   edicion.value.nombre.trim() !== u.value.nombre ||
   edicion.value.email.trim().toLowerCase() !== u.value.email.toLowerCase() ||
   edicion.value.rol !== u.value.rol ||
-  (edicion.value.rol === 'TECNICO' && edicion.value.idPropietario !== u.value.idPropietario)));
+  (edicion.value.rol === 'FAMILIAR' && edicion.value.idPropietario !== u.value.idPropietario)));
 
 const cargar = async () => {
   cargando.value = true;
   try {
-    const [detalle] = await Promise.all([admin.detalle(route.params.id), admin.cargarEmpresas()]);
+    const [detalle] = await Promise.all([admin.detalle(route.params.id), admin.cargarTitulares()]);
     d.value = detalle;
     const x = detalle.usuario;
     edicion.value = { nombre: x.nombre, email: x.email, rol: x.rol, idPropietario: x.idPropietario };
@@ -254,7 +271,7 @@ const guardar = async () => {
   const body = { nombre: edicion.value.nombre.trim(), email: edicion.value.email.trim() };
   if (!esYo.value) {
     body.rol = edicion.value.rol;
-    if (edicion.value.rol === 'TECNICO') body.idPropietario = edicion.value.idPropietario;
+    if (edicion.value.rol === 'FAMILIAR') body.idPropietario = edicion.value.idPropietario;
   }
   await hacer('guardar', () => admin.actualizar(u.value.idUsuario, body), 'No se pudieron guardar los cambios');
 };
@@ -281,8 +298,8 @@ const restablecer = async () => {
   if (r.data?.contrasenaTemporal) temporal.value = { usuario: u.value.email, contrasena: r.data.contrasenaTemporal };
 };
 
-/* Sensores y alarmas */
-const cambiarSensor = (s, activo) => hacer(s.codigoSensor, () => admin.cambiarSensor(s.codigoSensor, activo), 'No se pudo cambiar el sensor');
+/* Medidor y avisos */
+const cambiarMedidor = (m, activo) => hacer(m.codigoMedidor, () => admin.cambiarMedidor(m.codigoMedidor, activo), 'No se pudo cambiar el medidor');
 const cerrarAlarma = (a) => hacer(a.codigoAlarma, () => admin.cerrarAlarma(a.codigoAlarma), 'No se pudo cerrar la alarma');
 
 /* Eliminar */

@@ -1,6 +1,6 @@
 // Asistente de configuración de PowerTech (se ejecuta con: npm run configurar).
 //  1. Crea backend/.env si no existe y guarda la contraseña de MySQL.
-//  2. Crea la base de datos PowerTech LIMPIA (sin usuarios ni datos).
+//  2. Crea la base de datos PowerTech Hogar LIMPIA (sin usuarios ni datos).
 //  3. Crea la cuenta del administrador del sistema (SUPERADMIN).
 // Opciones:  --limpiar  → borra la base sin preguntar dos veces (sigue pidiendo confirmación escrita).
 const fs = require('fs');
@@ -10,7 +10,6 @@ const readline = require('readline');
 const RAIZ = path.join(__dirname, '..');
 const ENV = path.join(RAIZ, '.env');
 const SQL_BASE = path.join(RAIZ, 'src', 'database', 'powertech.sql');
-const SQL_MIGRACION = path.join(RAIZ, 'src', 'database', 'migracion_v3.sql');
 
 /* ---------------- entrada por teclado ---------------- */
 // Una sola interfaz para todo el script (las líneas se guardan en cola aunque
@@ -95,7 +94,7 @@ async function conectar(env, password) {
 }
 
 async function main() {
-  console.log('\n=========== PowerTech · Configuración ===========\n');
+  console.log('\n=========== PowerTech Hogar · Configuración ===========\n');
   let env = leerEnv();
   const base = valorEnv(env, 'DB_NAME', 'PowerTech');
 
@@ -124,26 +123,29 @@ async function main() {
   const [[existe]] = await conn.query('SELECT COUNT(*) AS n FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', [base]);
   let crearLimpia = !existe.n;
   if (existe.n) {
+    // ¿Es la versión para hogares? (la versión anterior para empresas no tiene la tabla HOGARES)
+    const [[esHogar]] = await conn.query(
+      "SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'HOGARES'", [base]);
     let usuarios = '?';
     try { [[{ n: usuarios }]] = await conn.query(`SELECT COUNT(*) AS n FROM \`${base}\`.USUARIOS`); } catch { /* base incompleta */ }
-    console.log(`La base ${base} ya existe y tiene ${usuarios} usuario(s).`);
-    const r = await preguntar('¿Borrar TODO y dejarla limpia, sin usuarios ni datos? Escribe SI para confirmar (Enter = conservarla): ');
-    crearLimpia = r.trim().toUpperCase() === 'SI';
+    if (!esHogar.n) {
+      console.log(`La base ${base} es de la versión anterior (para empresas) y tiene ${usuarios} usuario(s).`);
+      console.log('PowerTech Hogar necesita una base nueva: se borrarán edificios, salas, sensores y usuarios.');
+      const r = await preguntar('Escribe SI para crearla de nuevo (Enter = cancelar): ');
+      if (r.trim().toUpperCase() !== 'SI') throw new Error('Configuración cancelada: la app no funcionará con la base anterior.');
+      crearLimpia = true;
+    } else {
+      console.log(`La base ${base} ya existe y tiene ${usuarios} usuario(s).`);
+      const r = await preguntar('¿Borrar TODO y dejarla limpia, sin usuarios ni datos? Escribe SI para confirmar (Enter = conservarla): ');
+      crearLimpia = r.trim().toUpperCase() === 'SI';
+    }
   }
   if (crearLimpia) {
     if (base !== 'PowerTech') throw new Error('El script powertech.sql crea la base "PowerTech"; ajusta DB_NAME=PowerTech en .env');
     await conn.query(fs.readFileSync(SQL_BASE, 'utf8'));
-    console.log('✓ Base PowerTech creada limpia (sin usuarios)\n');
+    console.log('✓ Base PowerTech Hogar creada limpia (sin usuarios)\n');
   } else {
-    // Base conservada: si es de una versión anterior se actualiza.
-    const [[col]] = await conn.query(
-      "SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'USUARIOS' AND COLUMN_NAME = 'activo'", [base]);
-    if (!col.n) {
-      await conn.query(fs.readFileSync(SQL_MIGRACION, 'utf8'));
-      console.log('✓ Base actualizada para el administrador del sistema\n');
-    } else {
-      console.log('· Se conservó la base actual\n');
-    }
+    console.log('· Se conservó la base actual\n');
   }
 
   // 3) Administrador del sistema

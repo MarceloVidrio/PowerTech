@@ -4,7 +4,7 @@
       <v-avatar color="green-darken-2" class="mr-3"><v-icon color="white">mdi-shield-account</v-icon></v-avatar>
       <div>
         <h1 class="text-h5 font-weight-bold">Panel del administrador</h1>
-        <p class="text-caption text-grey-darken-1">Hola {{ userStore.usuario?.nombre }} · todos los usuarios de PowerTech</p>
+        <p class="text-caption text-grey-darken-1">Hola {{ userStore.usuario?.nombre }} · todos los usuarios de PowerTech Hogar</p>
       </div>
     </div>
 
@@ -53,8 +53,8 @@
             </div>
             <div class="text-caption text-grey-darken-1 text-truncate">{{ u.email }}</div>
             <div class="text-caption text-grey-darken-1">
-              {{ u.nombreRol }}<template v-if="u.propietario"> · empresa de {{ u.propietario }}</template>
-              <template v-if="u.rol === 'ADMIN'"> · {{ u.edificios }} edificio(s), {{ u.sensores }} sensor(es), {{ u.tecnicos }} técnico(s)</template>
+              {{ u.nombreRol }}<template v-if="u.propietario"> · familia de {{ u.propietario }}</template>
+              <template v-if="u.rol === 'TITULAR' && u.idHogar"> · «{{ u.nombreHogar }}»{{ u.ciudad ? `, ${u.ciudad}` : '' }} · {{ u.aparatos }} aparato(s), {{ u.familiares }} familiar(es)</template>
             </div>
           </div>
           <v-chip v-if="!u.activo" size="small" color="red" variant="tonal" class="ml-2">Desactivada</v-chip>
@@ -98,9 +98,9 @@
         <v-card-text>
           <v-form ref="formRef" v-model="formValido">
             <v-select v-model="nuevo.rol" :items="ROLES" label="Tipo de cuenta" variant="outlined" rounded="lg" density="comfortable" />
-            <v-select v-if="nuevo.rol === 'TECNICO'" v-model="nuevo.idPropietario" :items="admin.empresas"
-              item-title="nombre" item-value="idUsuario" label="Empresa (administrador)" variant="outlined" rounded="lg"
-              density="comfortable" :rules="[v => !!v || 'Elige la empresa']" no-data-text="No hay administradores de empresa" />
+            <v-select v-if="nuevo.rol === 'FAMILIAR'" v-model="nuevo.idPropietario" :items="admin.titulares"
+              item-title="nombre" item-value="idUsuario" label="Familia de (titular del hogar)" variant="outlined" rounded="lg"
+              density="comfortable" :rules="[v => !!v || 'Elige al titular']" no-data-text="No hay titulares de hogar" />
             <v-text-field v-model="nuevo.nombre" label="Nombre de usuario" variant="outlined" rounded="lg" density="comfortable"
               :rules="[v => !!v || 'Obligatorio', v => (v && v.length <= 50) || 'Máximo 50 caracteres']" />
             <v-text-field v-model="nuevo.email" label="Correo electrónico" type="email" variant="outlined" rounded="lg"
@@ -143,7 +143,7 @@ const rol = ref('');
 const soloProblemas = ref(false);
 const cargando = ref(false);
 
-const filtrosRol = [{ value: '', title: 'Todos' }, { value: 'ADMIN', title: 'Empresas' }, { value: 'TECNICO', title: 'Técnicos' }, { value: 'SUPERADMIN', title: 'Sistema' }];
+const filtrosRol = [{ value: '', title: 'Todos' }, { value: 'TITULAR', title: 'Titulares' }, { value: 'FAMILIAR', title: 'Familiares' }, { value: 'SUPERADMIN', title: 'Sistema' }];
 
 // "Nunca ha iniciado sesión" es informativo: no cuenta como problema para el filtro.
 const problemasReales = (u) => (u.problemas || []).filter((p) => p !== 'Nunca ha iniciado sesión');
@@ -152,18 +152,18 @@ const visibles = computed(() => (soloProblemas.value ? admin.usuarios.filter((u)
 const tarjetasResumen = computed(() => {
   const r = admin.resumen || {};
   return [
-    { label: 'Empresas', valor: r.empresas || 0 },
-    { label: 'Técnicos', valor: r.tecnicos || 0 },
+    { label: 'Hogares', valor: r.hogares || 0 },
+    { label: 'Familiares', valor: r.familiares || 0 },
     { label: 'Desactivadas', valor: r.desactivados || 0, clase: r.desactivados ? 'alerta' : '' },
-    { label: 'Alarmas activas', valor: r.alarmasActivas || 0, clase: r.alarmasActivas ? 'alerta' : '' },
+    { label: 'Avisos activos', valor: r.alarmasActivas || 0, clase: r.alarmasActivas ? 'alerta' : '' },
   ];
 });
 
-const iconoRol = (r) => ({ SUPERADMIN: 'mdi-shield-account', ADMIN: 'mdi-domain', TECNICO: 'mdi-account-hard-hat' }[r] || 'mdi-account');
+const iconoRol = (r) => ({ SUPERADMIN: 'mdi-shield-account', TITULAR: 'mdi-home-account', FAMILIAR: 'mdi-account-heart-outline' }[r] || 'mdi-account');
 const colorRol = (r) => ({
   SUPERADMIN: { fondo: 'green-darken-2', icono: 'white' },
-  ADMIN: { fondo: 'green-lighten-5', icono: 'green-darken-2' },
-  TECNICO: { fondo: 'blue-lighten-5', icono: 'blue-darken-2' },
+  TITULAR: { fondo: 'green-lighten-5', icono: 'green-darken-2' },
+  FAMILIAR: { fondo: 'blue-lighten-5', icono: 'blue-darken-2' },
 }[r] || { fondo: 'grey-lighten-3', icono: 'grey' });
 
 const cargar = async () => {
@@ -206,7 +206,7 @@ const formValido = ref(false);
 const guardando = ref(false);
 const ver = ref(false);
 const temporal = ref(null);
-const vacio = () => ({ rol: 'ADMIN', idPropietario: null, nombre: '', email: '', contrasena: '' });
+const vacio = () => ({ rol: 'TITULAR', idPropietario: null, nombre: '', email: '', contrasena: '' });
 const nuevo = ref(vacio());
 const reglaContrasenaOpcional = [
   (v) => !v || v.length >= 8 || 'Mínimo 8 caracteres',
@@ -215,7 +215,7 @@ const reglaContrasenaOpcional = [
 
 const abrirNuevo = async () => {
   dialogo.value = true;
-  try { await admin.cargarEmpresas(); } catch { /* el select queda vacío */ }
+  try { await admin.cargarTitulares(); } catch { /* el select queda vacío */ }
 };
 const cerrarNuevo = () => {
   dialogo.value = false;

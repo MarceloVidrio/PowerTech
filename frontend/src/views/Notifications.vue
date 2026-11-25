@@ -1,8 +1,8 @@
 <template>
   <v-container class="mt-8 px-4 main-container" fluid>
     <div class="mb-6">
-      <h1 class="text-h4 font-weight-bold">Notificaciones</h1>
-      <p class="text-subtitle-2 text-grey-darken-1">Alertas de tus edificios</p>
+      <h1 class="text-h4 font-weight-bold">Avisos</h1>
+      <p class="text-subtitle-2 text-grey-darken-1">Lo que PowerTech detectó en tu casa</p>
     </div>
 
     <!-- RESUMEN DE ALARMAS -->
@@ -57,8 +57,8 @@
       <v-window-item value="pendientes">
         <div class="section-heading">
           <div>
-            <div class="text-subtitle-1 font-weight-bold text-grey-darken-3">Alarmas activas</div>
-            <div class="text-caption text-grey-darken-1">Eventos que requieren atención.</div>
+            <div class="text-subtitle-1 font-weight-bold text-grey-darken-3">Avisos pendientes</div>
+            <div class="text-caption text-grey-darken-1">Revísalos y márcalos como «Enterado».</div>
           </div>
           <v-chip
             :color="alarmasPendientes.length > 0 ? 'red' : 'green'"
@@ -80,7 +80,7 @@
         <div v-else class="notification-list">
           <!-- Asume que AlarmCard emite un evento @atender cuando presionan un botón dentro de él -->
           <AlarmCard v-for="alarma in alarmasPendientes" :key="alarma.codigoAlarma" :alarma="alarma"
-            @atender="marcarComoAtendida(alarma.codigoAlarma)" />
+            :puede-atender="userStore.esTitular" @atender="marcarComoAtendida(alarma.codigoAlarma)" />
         </div>
       </v-window-item>
 
@@ -88,8 +88,8 @@
       <v-window-item value="historial">
         <div class="section-heading">
           <div>
-            <div class="text-subtitle-1 font-weight-bold text-grey-darken-3">Historial de alarmas</div>
-            <div class="text-caption text-grey-darken-1">Eventos atendidos y cerrados.</div>
+            <div class="text-subtitle-1 font-weight-bold text-grey-darken-3">Historial</div>
+            <div class="text-caption text-grey-darken-1">Avisos ya revisados.</div>
           </div>
           <v-chip color="green" variant="tonal" size="small" class="font-weight-bold">
             {{ alarmasHistorial.length }} resueltas
@@ -100,7 +100,7 @@
           class="pa-8 text-center rounded-xl bg-transparent elevation-0 border-dashed">
           <v-icon size="64" color="grey-lighten-1" class="mb-4">mdi-history</v-icon>
           <div class="text-h6 text-grey-darken-2">Historial vacío</div>
-          <div class="text-body-2 text-grey">Aún no has resuelto ninguna alerta.</div>
+          <div class="text-body-2 text-grey">Aún no hay avisos revisados.</div>
         </v-card>
 
         <div v-else class="notification-list opacity-80">
@@ -141,21 +141,18 @@ const alarmasHistorial = computed(() => {
 });
 
 const cargarNotificaciones = () => {
-  const userId = usuario.value?.idUsuario;
-  if (userId) {
-    alarmStore.listarAlarmas({ id: userId });
-  }
+  if (usuario.value) alarmStore.listarAlarmas();
 };
 
 const marcarComoAtendida = (codigoAlarma) => {
   alarmStore.atenderAlarma({
     id: codigoAlarma,
     onComplete: () => {
-      notify.show("Alarma marcada como resuelta", "success");
+      notify.show("Aviso marcado como revisado", "success");
       cargarNotificaciones();
     },
     onError: () => {
-      notify.show("Error al actualizar la alarma", "error");
+      notify.show(userStore.esTitular ? "No se pudo actualizar el aviso" : "Solo el titular puede marcar los avisos", "error");
     }
   });
 };

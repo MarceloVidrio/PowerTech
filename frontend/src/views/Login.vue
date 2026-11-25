@@ -14,7 +14,8 @@
     contain
   />
 </v-avatar>
-            <h1 class="text-h4 font-weight-bold mt-4" style="color: #478D4B;">PowerTech</h1>
+            <h1 class="text-h4 font-weight-bold mt-4" style="color: #478D4B;">PowerTech Hogar</h1>
+            <p class="text-body-2 text-grey-darken-1 mt-1">Conoce y baja el consumo de luz de tu casa</p>
           </div>
 
           <v-form ref="formRef" v-model="esValido" @submit.prevent="login">

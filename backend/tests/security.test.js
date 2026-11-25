@@ -18,10 +18,10 @@ test('una contraseña antigua en texto plano funciona una vez y pide rehash', ()
 });
 
 test('el token de sesión se firma, se valida y detecta alteraciones', () => {
-  const t = s.signToken({ sub: 7, own: 7, rol: 'ADMIN' });
+  const t = s.signToken({ sub: 7, own: 7, rol: 'TITULAR' });
   assert.equal(s.verifyToken(t).sub, 7);
   const [h, b, f] = t.split('.');
-  const otro = Buffer.from(JSON.stringify({ sub: 1, own: 1, rol: 'ADMIN', exp: 9999999999 })).toString('base64url');
+  const otro = Buffer.from(JSON.stringify({ sub: 1, own: 1, rol: 'TITULAR', exp: 9999999999 })).toString('base64url');
   assert.equal(s.verifyToken(`${h}.${otro}.${f}`), null);
   assert.equal(s.verifyToken('basura'), null);
   assert.equal(s.verifyToken(s.signToken({ sub: 7 }, -1)), null); // expirado

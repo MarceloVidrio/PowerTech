@@ -20,15 +20,15 @@
         </div>
 
         <!-- Detalle -->
-        <p class="text-body-2 text-grey-darken-2 text-truncate mb-2">
+        <p class="text-body-2 text-grey-darken-2 mb-2">
           {{ alarma.detalle }}
         </p>
 
-        <!-- Icono, Edificio y Sala -->
+        <!-- Casa -->
         <div class="d-flex align-center text-caption text-grey-darken-1 mt-1">
-          <v-icon size="14" class="mr-1">mdi-map-marker-outline</v-icon>
+          <v-icon size="14" class="mr-1">mdi-home-outline</v-icon>
           <span class="text-truncate font-weight-medium">
-            {{ alarma.nombreEdificio }} • {{ alarma.nombreSala }}
+            {{ alarma.nombreHogar || 'Mi casa' }}
           </span>
 
           <v-spacer></v-spacer>
@@ -42,9 +42,9 @@
           </v-chip>
 
           <!-- Botón para Atender -->
-          <v-btn v-if="alarma.estado?.toUpperCase() === 'ACTIVA' && !desactivado" size="x-small" color="blue-darken-2"
+          <v-btn v-if="alarma.estado?.toUpperCase() === 'ACTIVA' && !desactivado && puedeAtender" size="x-small" color="blue-darken-2"
             variant="flat" class="text-none font-weight-bold rounded-pill" @click.stop="$emit('atender')">
-            Atender
+            Enterado
           </v-btn>
         </div>
       </div>
@@ -57,7 +57,8 @@ import { computed } from 'vue';
 
 const props = defineProps({
   alarma: { type: Object, required: true },
-  desactivado: { type: Boolean, default: false } // Nueva prop para el historial
+  desactivado: { type: Boolean, default: false }, // historial
+  puedeAtender: { type: Boolean, default: true }   // los familiares solo consultan
 });
 
 // Declaración del evento emitido hacia la vista padre
@@ -71,12 +72,13 @@ const colorNivel = computed(() => {
   return { fondo: 'blue-lighten-5', texto: 'blue-darken-2' };
 });
 
-/* Iconos para test. Se deben de cambiar */
+/* Icono según el tipo de aviso */
 const iconoTipo = computed(() => {
-  const tipo = props.alarma.tipoAlarma.toLowerCase();
-  if (tipo.includes('incendio') || tipo.includes('humo')) return 'mdi-fire-alert';
-  if (tipo.includes('intruso') || tipo.includes('movimiento')) return 'mdi-motion-sensor';
-  if (tipo.includes('falla') || tipo.includes('energia')) return 'mdi-flash-alert';
+  const tipo = (props.alarma.tipoAlarma || '').toLowerCase();
+  if (tipo.includes('sueño')) return 'mdi-weather-night';
+  if (tipo.includes('vacaciones')) return 'mdi-bag-suitcase-outline';
+  if (tipo.includes('dac') || tipo.includes('meta')) return 'mdi-receipt-text-outline';
+  if (tipo.includes('alto')) return 'mdi-flash-alert';
   return 'mdi-bell-alert-outline';
 });
 

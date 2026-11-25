@@ -33,15 +33,15 @@ test('las rutas protegidas exigen un token válido y una cuenta activa', async (
   let err;
   await requireAuth({ headers: {} }, {}, (e) => { err = e; });
   assert.equal(err.status, 401);
-  // El rol y la empresa se toman de la base (no del token), por si el administrador los cambió.
-  responder([{ idUsuario: 5, nombre: 'tec', rol: 'TECNICO', idPropietario: 3, activo: 1 }]);
-  const req = { headers: { authorization: `Bearer ${signToken({ sub: 5, own: 3, rol: 'ADMIN' })}` } };
+  // El rol y el hogar se toman de la base (no del token), por si el administrador los cambió.
+  responder([{ idUsuario: 5, nombre: 'hijo', rol: 'FAMILIAR', idPropietario: 3, activo: 1 }]);
+  const req = { headers: { authorization: `Bearer ${signToken({ sub: 5, own: 3, rol: 'TITULAR' })}` } };
   err = 'sin llamar';
   await requireAuth(req, {}, (e) => { err = e; });
   assert.equal(err, undefined);
-  assert.deepEqual([req.user.id, req.user.owner, req.user.rol], [5, 3, 'TECNICO']);
+  assert.deepEqual([req.user.id, req.user.owner, req.user.rol], [5, 3, 'FAMILIAR']);
   // Cuenta desactivada o eliminada → 401
-  responder([{ idUsuario: 5, nombre: 'tec', rol: 'TECNICO', idPropietario: 3, activo: 0 }]);
+  responder([{ idUsuario: 5, nombre: 'hijo', rol: 'FAMILIAR', idPropietario: 3, activo: 0 }]);
   await requireAuth({ headers: req.headers }, {}, (e) => { err = e; });
   assert.equal(err.status, 401);
   assert.match(err.message, /desactivada/);
@@ -50,10 +50,11 @@ test('las rutas protegidas exigen un token válido y una cuenta activa', async (
   assert.equal(err.status, 401);
 });
 
-test('un técnico no puede usar rutas de administrador ni pedir datos de otro usuario', () => {
+test('un familiar no puede hacer cambios ni pedir datos de otro usuario', () => {
   let err;
-  requireRole('ADMIN')({ user: { rol: 'TECNICO' } }, {}, (e) => { err = e; });
+  requireRole('TITULAR')({ user: { rol: 'FAMILIAR' } }, {}, (e) => { err = e; });
   assert.equal(err.status, 403);
+  assert.match(err.message, /titular/);
   sameUserParam()({ user: { id: 5 }, params: { id: '9' } }, {}, (e) => { err = e; });
   assert.equal(err.status, 403);
   sameUserParam()({ user: { id: 5 }, params: { id: '5' } }, {}, (e) => { err = e; });

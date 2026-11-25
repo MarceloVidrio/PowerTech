@@ -4,14 +4,14 @@ import axios from "axios";
 import { ref } from "vue";
 
 export const ROLES = [
-  { value: "ADMIN", title: "Administrador de empresa" },
-  { value: "TECNICO", title: "Técnico" },
+  { value: "TITULAR", title: "Titular del hogar" },
+  { value: "FAMILIAR", title: "Familiar" },
   { value: "SUPERADMIN", title: "Administrador del sistema" },
 ];
 export const nombreRol = (rol) => ROLES.find((r) => r.value === rol)?.title || rol;
 const ACCIONES = {
   CREAR_CUENTA: "Cuenta creada", EDITAR_CUENTA: "Cuenta editada", CAMBIAR_CONTRASENA: "Contraseña restablecida",
-  DESBLOQUEAR: "Cuenta desbloqueada", ELIMINAR_CUENTA: "Cuenta eliminada", SENSOR: "Sensor", CERRAR_ALARMA: "Alarma cerrada",
+  DESBLOQUEAR: "Cuenta desbloqueada", ELIMINAR_CUENTA: "Cuenta eliminada", MEDIDOR: "Sensor", CERRAR_ALARMA: "Alarma cerrada",
 };
 export const nombreAccion = (a) => ACCIONES[a] || a;
 export const mensajeError = (e, porDefecto) =>
@@ -20,7 +20,7 @@ export const mensajeError = (e, porDefecto) =>
 export const useAdminStore = defineStore("admin", () => {
   const resumen = ref(null);
   const usuarios = ref([]);
-  const empresas = ref([]);
+  const titulares = ref([]);
 
   const datos = (p) => p.then((r) => r.data.data);
   const respuesta = (p) => p.then((r) => r.data);
@@ -28,7 +28,7 @@ export const useAdminStore = defineStore("admin", () => {
   const cargarResumen = async () => (resumen.value = await datos(axios.get("/api/admin/resumen")));
   const cargarUsuarios = async (filtros = {}) =>
     (usuarios.value = await datos(axios.get("/api/admin/usuarios", { params: filtros })));
-  const cargarEmpresas = async () => (empresas.value = await datos(axios.get("/api/admin/empresas")));
+  const cargarTitulares = async () => (titulares.value = await datos(axios.get("/api/admin/titulares")));
   const detalle = (id) => datos(axios.get(`/api/admin/usuarios/${id}`));
   const bitacora = (limite = 100) => datos(axios.get("/api/admin/bitacora", { params: { limite } }));
 
@@ -38,12 +38,12 @@ export const useAdminStore = defineStore("admin", () => {
     respuesta(axios.post(`/api/admin/usuarios/${id}/contrasena`, contrasena ? { contrasena } : {}));
   const desbloquear = (id) => respuesta(axios.post(`/api/admin/usuarios/${id}/desbloquear`));
   const eliminar = (id) => respuesta(axios.delete(`/api/admin/usuarios/${id}`));
-  const cambiarSensor = (codigo, activo) => respuesta(axios.patch(`/api/admin/sensores/${codigo}`, { activo }));
+  const cambiarMedidor = (codigo, activo) => respuesta(axios.patch(`/api/admin/medidores/${codigo}`, { activo }));
   const cerrarAlarma = (codigo) => respuesta(axios.post(`/api/admin/alarmas/${codigo}/cerrar`));
 
   return {
-    resumen, usuarios, empresas,
-    cargarResumen, cargarUsuarios, cargarEmpresas, detalle, bitacora,
-    crear, actualizar, restablecerContrasena, desbloquear, eliminar, cambiarSensor, cerrarAlarma,
+    resumen, usuarios, titulares,
+    cargarResumen, cargarUsuarios, cargarTitulares, detalle, bitacora,
+    crear, actualizar, restablecerContrasena, desbloquear, eliminar, cambiarMedidor, cerrarAlarma,
   };
 });

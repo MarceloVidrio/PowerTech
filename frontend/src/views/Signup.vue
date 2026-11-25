@@ -20,9 +20,12 @@
           </div>
 
           <!-- Título -->
-          <h1 class="text-center font-weight-bold mb-6">
-            Registro
+          <h1 class="text-center font-weight-bold mb-1">
+            Crea la cuenta de tu hogar
           </h1>
+          <p class="text-center text-body-2 text-grey-darken-1 mb-6">
+            Serás el titular: después podrás invitar a tu familia para que consulte el consumo.
+          </p>
 
           <!-- Formulario -->
           <v-form

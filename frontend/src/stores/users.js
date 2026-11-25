@@ -10,12 +10,13 @@ export const useUserStore = defineStore("user", () => {
   const usuario = ref(guardado && !tokenVencido(guardado.token) ? guardado : null);
   if (guardado && !usuario.value) saveStoredUser(() => window.localStorage, null);
 
-  const edificiosYSalas = ref([]);
   const loading = ref(false);
 
   const token = computed(() => usuario.value?.token || null);
-  // ADMIN = dueño de la cuenta de una empresa; SUPERADMIN = administrador del sistema
-  const esAdmin = computed(() => (usuario.value?.rol || "ADMIN") === "ADMIN");
+  // TITULAR = dueño de la cuenta del hogar (configura todo); FAMILIAR = solo consulta;
+  // SUPERADMIN = administrador del sistema
+  const esTitular = computed(() => (usuario.value?.rol || "TITULAR") === "TITULAR");
+  const esFamiliar = computed(() => usuario.value?.rol === "FAMILIAR");
   const esSuperAdmin = computed(() => usuario.value?.rol === "SUPERADMIN");
 
   // POST /login → el backend responde { idUsuario, nombre, email, rol, token }
@@ -45,43 +46,28 @@ export const useUserStore = defineStore("user", () => {
       .finally(() => (loading.value = false));
   };
 
-  // GET /user/:id/perfil
-  const obtenerDatosRelacionados = ({ id, onComplete, onError }) => {
-    loading.value = true;
-    axios
-      .get(`${API_BASE}/user/${id}/perfil`)
-      .then((res) => {
-        edificiosYSalas.value = res.data.data;
-        if (onComplete) onComplete(res);
-      })
-      .catch(onError)
-      .finally(() => (loading.value = false));
-  };
-
-  // Técnicos de la empresa (solo administrador)
-  const listarTecnicos = () => axios.get(`${API_BASE}/user/tecnicos`).then((res) => res.data.data);
-  const crearTecnico = (datos) => axios.post(`${API_BASE}/user/tecnicos`, datos).then((res) => res.data);
-  const eliminarTecnico = (id) => axios.delete(`${API_BASE}/user/tecnicos/${id}`).then((res) => res.data);
+  // Familia del hogar (solo el titular)
+  const listarFamilia = () => axios.get(`${API_BASE}/user/familia`).then((res) => res.data.data);
+  const crearFamiliar = (datos) => axios.post(`${API_BASE}/user/familia`, datos).then((res) => res.data);
+  const eliminarFamiliar = (id) => axios.delete(`${API_BASE}/user/familia/${id}`).then((res) => res.data);
 
   // Cerrar sesión
   const logout = () => {
     usuario.value = null;
-    edificiosYSalas.value = [];
     saveStoredUser(() => window.localStorage, null);
   };
 
   return {
     usuario,
     token,
-    esAdmin,
+    esTitular,
+    esFamiliar,
     esSuperAdmin,
-    edificiosYSalas,
     loading,
     login,
-    obtenerDatosRelacionados,
-    listarTecnicos,
-    crearTecnico,
-    eliminarTecnico,
+    listarFamilia,
+    crearFamiliar,
+    eliminarFamiliar,
     logout,
     agregarUsuario
   };

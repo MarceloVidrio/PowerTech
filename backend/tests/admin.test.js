@@ -10,8 +10,9 @@ function resFalsa() {
 }
 const superadmin = { id: 1, owner: 1, rol: 'SUPERADMIN', nombre: 'root' };
 const fila = (extra) => ({
-  idUsuario: 7, nombre: 'pyme', email: 'pyme@x.com', rol: 'ADMIN', activo: 1, idPropietario: null,
-  propietario: null, propietarioActivo: null, edificios: 0, sensores: 0, sensoresInactivos: 0, tecnicos: 0,
+  idUsuario: 7, nombre: 'casa', email: 'casa@x.com', rol: 'TITULAR', activo: 1, idPropietario: null,
+  propietario: null, propietarioActivo: null, idHogar: 3, nombreHogar: 'Mi casa', codigoMedidor: 'MED-1', medidorActivo: 1,
+  ultimaLectura: '2026-11-19 09:00:00', horasSinLectura: 1, aparatos: 0, familiares: 0,
   alarmasActivas: 0, bloqueoRecuperacion: 0, ultimoAcceso: '2026-11-19 10:00:00', ...extra,
 });
 
@@ -22,26 +23,30 @@ test('la contraseña temporal cumple las reglas y no se repite', () => {
 });
 
 test('detecta los problemas de una cuenta', () => {
-  const p = c.detectarProblemas({ activo: false, rol: 'TECNICO', idPropietario: null, sensoresInactivos: 2, alarmasActivas: 1, bloqueoRecuperacion: true, ultimoAcceso: null });
+  const p = c.detectarProblemas({ activo: false, rol: 'FAMILIAR', idPropietario: null, alarmasActivas: 1, bloqueoRecuperacion: true, ultimoAcceso: null });
   assert.ok(p.includes('Cuenta desactivada'));
-  assert.ok(p.includes('Técnico sin empresa asignada'));
-  assert.ok(p.includes('2 sensor(es) desactivado(s)'));
+  assert.ok(p.includes('Familiar sin hogar asignado'));
+  assert.ok(p.includes('1 aviso(s) activo(s)'));
   assert.ok(p.includes('Código de recuperación bloqueado por intentos fallidos'));
   assert.ok(p.includes('Nunca ha iniciado sesión'));
-  assert.deepEqual(c.detectarProblemas({ activo: true, rol: 'ADMIN', ultimoAcceso: 'x' }), []);
+  const titular = { activo: true, rol: 'TITULAR', ultimoAcceso: 'x', idHogar: 1, codigoMedidor: 'MED-1', medidorActivo: true, ultimaLectura: 'x', horasSinLectura: 2 };
+  assert.deepEqual(c.detectarProblemas(titular), []);
+  assert.deepEqual(c.detectarProblemas({ ...titular, idHogar: null }), ['Aún no configura su hogar']);
+  assert.deepEqual(c.detectarProblemas({ ...titular, codigoMedidor: null }), ['Su hogar no tiene sensor registrado']);
+  assert.deepEqual(c.detectarProblemas({ ...titular, horasSinLectura: 50 }), ['El sensor no envía lecturas desde hace 2 día(s)']);
 });
 
 test('reglas para cambiar el rol', () => {
   const v = c.validarCambioRol;
-  const admin = { idUsuario: 7, rol: 'ADMIN' };
-  assert.match(v({ actual: { idUsuario: 1, rol: 'SUPERADMIN' }, nuevoRol: 'ADMIN', idAdmin: 1 }), /propio rol/);
-  assert.match(v({ actual: admin, nuevoRol: 'TECNICO', idPropietario: null, idAdmin: 1 }), /empresa/);
-  assert.match(v({ actual: admin, nuevoRol: 'TECNICO', idPropietario: 9, idAdmin: 1, propietario: { rol: 'TECNICO' } }), /no es un administrador/);
-  assert.match(v({ actual: admin, nuevoRol: 'TECNICO', idPropietario: 9, idAdmin: 1, propietario: { rol: 'ADMIN' }, edificios: 2 }), /edificios/);
-  assert.match(v({ actual: admin, nuevoRol: 'SUPERADMIN', idAdmin: 1, tecnicos: 1 }), /técnicos/);
-  assert.equal(v({ actual: admin, nuevoRol: 'TECNICO', idPropietario: 9, idAdmin: 1, propietario: { rol: 'ADMIN' } }), null);
-  assert.equal(v({ actual: { idUsuario: 8, rol: 'TECNICO' }, nuevoRol: 'ADMIN', idAdmin: 1 }), null);
-  assert.equal(v({ actual: admin, nuevoRol: 'X', idAdmin: 1 }), 'Rol no válido');
+  const titular = { idUsuario: 7, rol: 'TITULAR' };
+  assert.match(v({ actual: { idUsuario: 1, rol: 'SUPERADMIN' }, nuevoRol: 'TITULAR', idAdmin: 1 }), /propio rol/);
+  assert.match(v({ actual: titular, nuevoRol: 'FAMILIAR', idPropietario: null, idAdmin: 1 }), /hogar/);
+  assert.match(v({ actual: titular, nuevoRol: 'FAMILIAR', idPropietario: 9, idAdmin: 1, propietario: { rol: 'FAMILIAR' } }), /no es titular/);
+  assert.match(v({ actual: titular, nuevoRol: 'FAMILIAR', idPropietario: 9, idAdmin: 1, propietario: { rol: 'TITULAR' }, tieneHogar: true }), /hogar configurado/);
+  assert.match(v({ actual: titular, nuevoRol: 'SUPERADMIN', idAdmin: 1, familiares: 1 }), /familiares/);
+  assert.equal(v({ actual: titular, nuevoRol: 'FAMILIAR', idPropietario: 9, idAdmin: 1, propietario: { rol: 'TITULAR' } }), null);
+  assert.equal(v({ actual: { idUsuario: 8, rol: 'FAMILIAR' }, nuevoRol: 'TITULAR', idAdmin: 1 }), null);
+  assert.equal(v({ actual: titular, nuevoRol: 'X', idAdmin: 1 }), 'Rol no válido');
 });
 
 test('el administrador no puede desactivarse ni eliminarse a sí mismo', async () => {
@@ -95,15 +100,15 @@ test('desbloquear quita el bloqueo por intentos fallidos de un correo', () => {
   assert.equal(correoBloqueado('pyme@x.com'), false);
 });
 
-test('crear un técnico exige una empresa válida', async () => {
-  responder([{ idUsuario: 9, rol: 'TECNICO' }]);
-  await assert.rejects(c.crearUsuario({ body: { rol: 'TECNICO', idPropietario: 9, nombre: 'a', email: 'a@a.com' }, user: superadmin }, resFalsa()), /empresa/);
+test('crear un familiar exige un titular válido', async () => {
+  responder([{ idUsuario: 9, rol: 'FAMILIAR' }]);
+  await assert.rejects(c.crearUsuario({ body: { rol: 'FAMILIAR', idPropietario: 9, nombre: 'a', email: 'a@a.com' }, user: superadmin }, resFalsa()), /titular/);
 });
 
 test('crear cuenta sin contraseña devuelve una temporal', async () => {
   responder([], { insertId: 12 }, []);
   const res = resFalsa();
-  await c.crearUsuario({ body: { rol: 'ADMIN', nombre: 'nueva', email: 'nueva@x.com' }, user: superadmin }, res);
+  await c.crearUsuario({ body: { rol: 'TITULAR', nombre: 'nueva', email: 'nueva@x.com' }, user: superadmin }, res);
   assert.equal(res.statusCode, 201);
   assert.equal(res.body.data.idUsuario, 12);
   assert.match(res.body.data.contrasenaTemporal, /^[A-Za-z]{6}-\d{4}$/);

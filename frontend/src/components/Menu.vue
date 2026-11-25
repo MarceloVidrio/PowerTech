@@ -24,19 +24,19 @@ import { RouterLink, useRoute } from 'vue-router';
 import { useUserStore } from '@/stores/users';
 const userStore = useUserStore();
 const route = useRoute();
-const itemsEmpresa = [
+const itemsHogar = [
   { to: '/', label: 'Inicio', icon: 'mdi-home-outline' },
-  { to: '/notifications', label: 'Avisos', icon: 'mdi-bell-outline' },
-  { to: '/monitoring', label: 'Monitoreo', icon: 'mdi-chart-line' },
-  { to: '/all-devices', label: 'Equipos', icon: 'mdi-devices' },
-  { to: '/sensors', label: 'Sensores', icon: 'mdi-access-point' },
-  { to: '/others', label: 'Más', icon: 'mdi-dots-grid' },
+  { to: '/consumo', label: 'Consumo', icon: 'mdi-chart-line' },
+  { to: '/recibo', label: 'Recibo', icon: 'mdi-receipt-text-outline' },
+  { to: '/aparatos', label: 'Aparatos', icon: 'mdi-power-plug-outline' },
+  { to: '/avisos', label: 'Avisos', icon: 'mdi-bell-outline' },
+  { to: '/mas', label: 'Más', icon: 'mdi-dots-grid' },
 ];
 // El administrador del sistema solo usa su panel
 const itemsSistema = [
   { to: '/admin', label: 'Usuarios', icon: 'mdi-account-cog-outline' },
 ];
-const items = computed(() => (userStore.esSuperAdmin ? itemsSistema : itemsEmpresa));
+const items = computed(() => (userStore.esSuperAdmin ? itemsSistema : itemsHogar));
 const cerrarSesion = () => {
   userStore.logout();
   window.location.href = '/login';

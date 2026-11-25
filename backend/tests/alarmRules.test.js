@@ -1,38 +1,45 @@
 require('./setup');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { evaluarLectura, TIPOS } = require('../src/services/alarmRules');
+const { evaluarLectura, evaluarPeriodo, enRango, TIPOS } = require('../src/services/alarmRules');
 
-const base = { umbralAlto: 400, umbralBajo: 50, horarioEntrada: '08:00:00', horarioSalida: '18:00:00' };
+const casa = { umbralAltoW: 5000, consumoBaseW: 300, consumoNocheW: 1500, horaDormirInicio: '23:00:00', horaDormirFin: '06:00:00', modoVacaciones: false };
 
-test('una lectura normal en horario no genera alarmas', () => {
-  assert.deepEqual(evaluarLectura({ ...base, valor: 250, fechaHora: '2026-11-12 10:00:00' }), []);
+test('un consumo normal de día no genera avisos', () => {
+  assert.deepEqual(evaluarLectura({ ...casa, valor: 2200, fechaHora: '2026-11-12 16:00:00' }), []);
 });
 
-test('un pico sobre el umbral alto genera nivel 4, y nivel 5 si supera 150 %', () => {
-  const [a] = evaluarLectura({ ...base, valor: 500, fechaHora: '2026-11-12 10:00:00' });
-  assert.equal(a.tipo, TIPOS.PICO);
+test('consumo alto: nivel 4, y nivel 5 si supera 150 %', () => {
+  const [a] = evaluarLectura({ ...casa, valor: 5600, fechaHora: '2026-11-12 16:00:00' });
+  assert.equal(a.tipo, TIPOS.ALTO);
   assert.equal(a.nivel, 4);
-  assert.equal(evaluarLectura({ ...base, valor: 700, fechaHora: '2026-11-12 10:00:00' })[0].nivel, 5);
+  assert.equal(evaluarLectura({ ...casa, valor: 8000, fechaHora: '2026-11-12 16:00:00' })[0].nivel, 5);
 });
 
-test('consumo fuera de horario genera alarma de nivel 3', () => {
-  const r = evaluarLectura({ ...base, valor: 220, fechaHora: '2026-11-12 21:30:00' });
-  assert.deepEqual(r.map((a) => [a.tipo, a.nivel]), [[TIPOS.FUERA_HORARIO, 3]]);
-  // a la hora exacta de salida ya está fuera de horario
-  assert.equal(evaluarLectura({ ...base, valor: 220, fechaHora: '2026-11-12T18:00:00' }).length, 1);
+test('las horas de sueño pueden cruzar la medianoche', () => {
+  assert.ok(enRango('23:30:00', '23:00', '06:00'));
+  assert.ok(enRango('02:00:00', '23:00', '06:00'));
+  assert.ok(!enRango('06:00:00', '23:00', '06:00'));
+  assert.ok(!enRango('12:00:00', '23:00', '06:00'));
+  assert.ok(enRango('01:00:00', '00:00', '06:00'));
 });
 
-test('consumo "fantasma" bajo el umbral bajo fuera de horario no genera alarma', () => {
-  assert.deepEqual(evaluarLectura({ ...base, valor: 30, fechaHora: '2026-11-12 23:00:00' }), []);
+test('consumo de más en horas de sueño genera aviso nivel 2; el normal de noche no', () => {
+  const r = evaluarLectura({ ...casa, valor: 2100, fechaHora: '2026-11-12 02:30:00' });
+  assert.deepEqual(r.map((a) => [a.tipo, a.nivel]), [[TIPOS.SUENO, 2]]);
+  assert.deepEqual(evaluarLectura({ ...casa, valor: 1200, fechaHora: '2026-11-12 02:30:00' }), []);
 });
 
-test('consumo bajo dentro del horario avisa de equipo apagado o sensor desconectado', () => {
-  const [a] = evaluarLectura({ ...base, valor: 0, fechaHora: '2026-11-12 11:00:00' });
-  assert.equal(a.tipo, TIPOS.BAJO);
-  assert.equal(a.nivel, 2);
+test('en modo vacaciones avisa cualquier consumo arriba del mínimo (y no el de sueño)', () => {
+  const r = evaluarLectura({ ...casa, modoVacaciones: true, valor: 900, fechaHora: '2026-11-12 02:30:00' });
+  assert.deepEqual(r.map((a) => [a.tipo, a.nivel]), [[TIPOS.VACACIONES, 4]]);
+  assert.deepEqual(evaluarLectura({ ...casa, modoVacaciones: true, valor: 250, fechaHora: '2026-11-12 12:00:00' }), []);
 });
 
-test('sin umbrales configurados no se genera nada', () => {
-  assert.deepEqual(evaluarLectura({ valor: 9999, fechaHora: '2026-11-12 11:00:00' }), []);
+test('avisos del periodo: meta bimestral y riesgo de DAC', () => {
+  const r = evaluarPeriodo({ proyeccionKwh: 1300, metaBimestralKwh: 1000, kwhMensualEstimado: 2600, limiteDAC: 2500 });
+  assert.deepEqual(r.map((a) => a.tipo), [TIPOS.META, TIPOS.DAC]);
+  assert.deepEqual(evaluarPeriodo({ proyeccionKwh: 800, metaBimestralKwh: 1000, kwhMensualEstimado: 400, limiteDAC: 2500 }), []);
+  // con pocos datos no se avisa
+  assert.deepEqual(evaluarPeriodo({ proyeccionKwh: 9999, metaBimestralKwh: 1, kwhMensualEstimado: 9999, limiteDAC: 1, confiable: false }), []);
 });

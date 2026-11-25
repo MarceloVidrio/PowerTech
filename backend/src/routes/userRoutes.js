@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const c = require('../controllers/userController');
-const { requireAuth, requireRole, sameUserParam } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 const { rateLimit, correoDe } = require('../middleware/rateLimit');
 
 // Límites contra ataques de fuerza bruta
@@ -14,13 +14,11 @@ router.post('/login', limiteLogin, c.login);                  // Iniciar sesión
 router.post('/recover', limiteRecuperar, c.recover);          // Solicitar código de recuperación
 router.post('/verify-code', limiteCodigo, c.verificarCodigo); // Verificar el código
 router.post('/reset-password', limiteCodigo, c.cambiarContrasena);
-router.post('/', limiteRegistro, c.crear);                    // Registro de un administrador
+router.post('/', limiteRegistro, c.crear);                    // Registro del titular de un hogar
 
-// Técnicos de la empresa (solo el administrador)
-router.get('/tecnicos', requireAuth, requireRole('ADMIN'), c.listarTecnicos);
-router.post('/tecnicos', requireAuth, requireRole('ADMIN'), c.crearTecnico);
-router.delete('/tecnicos/:id', requireAuth, requireRole('ADMIN'), c.eliminarTecnico);
-
-router.get('/:id/perfil', requireAuth, sameUserParam(), c.obtenerDatosRelacionados);
+// Familia del hogar (solo el titular)
+router.get('/familia', requireAuth, requireRole('TITULAR'), c.listarFamilia);
+router.post('/familia', requireAuth, requireRole('TITULAR'), c.crearFamiliar);
+router.delete('/familia/:id', requireAuth, requireRole('TITULAR'), c.eliminarFamiliar);
 
 module.exports = router;

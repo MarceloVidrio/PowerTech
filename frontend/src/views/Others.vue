@@ -2,7 +2,7 @@
   <v-container class="mt-8 px-4 main-container" fluid>
 
     <div class="mb-6">
-      <h1 class="text-h4 font-weight-bold">Administración rápida</h1>
+      <h1 class="text-h4 font-weight-bold">Más opciones</h1>
       <p class="text-subtitle-2 text-grey-darken-1"> Bienvenido, {{ nombreFormateado || 'Usuario' }}</p>
     </div>
 
@@ -39,40 +39,27 @@ const router = useRouter(); // Instanciamos el enrutador
 
 const menuBase = [
   {
-    titulo: 'Gestión de edificios',
+    titulo: 'Mi casa',
     items: [
-      { label: 'Agregar', icon: 'mdi-home-plus-outline', accion: () => router.push('/buildings') },
-      { label: 'Administrar', icon: 'mdi-office-building-cog-outline', accion: () => router.push('/buildings') },
+      { label: 'Datos y sensor', icon: 'mdi-home-edit-outline', accion: () => router.push('/hogar') },
+      { label: 'Aparatos', icon: 'mdi-power-plug-outline', accion: () => router.push('/aparatos') },
     ]
   },
   {
-    titulo: 'Gestión de dispositivos',
+    titulo: 'Mi consumo',
     items: [
-      // Enlazamos a la nueva vista global de sensores
-      { label: 'Sensores', icon: 'mdi-access-point', accion: () => router.push('/sensors') },
-      { label: 'Monitorear', icon: 'mdi-pulse', accion: () => router.push('/monitoring') },
+      { label: 'Consumo', icon: 'mdi-chart-line', accion: () => router.push('/consumo') },
+      { label: 'Recibo estimado', icon: 'mdi-receipt-text-outline', accion: () => router.push('/recibo') },
+      { label: 'Avisos', icon: 'mdi-bell-outline', accion: () => router.push('/avisos') },
     ]
   },
-  {
-    titulo: 'Gestión de reportes',
-    items: [
-      { label: 'Generar', icon: 'mdi-file-document-outline', accion: () => router.push('/reports/selection') },
-      { label: 'Imprimir', icon: 'mdi-printer-eye', accion: () => router.push('/reports/selection') },
-    ]
-  },
-  {
-    titulo: 'Conoce tu recibo de luz',
-    items: [
-   { label: 'Cómo leer tu recibo', icon: 'mdi-file-document-outline', accion: () => router.push('/reciboReporte') },
-    ]
-  }
 ];
 
-// La gestión del equipo de trabajo solo aparece para el administrador
-const menuAdministracion = computed(() => userStore.esAdmin
+// La familia solo la administra el titular del hogar
+const menuAdministracion = computed(() => userStore.esTitular
   ? [...menuBase, {
-      titulo: 'Mi equipo',
-      items: [{ label: 'Técnicos', icon: 'mdi-account-hard-hat-outline', accion: () => router.push('/equipo') }]
+      titulo: 'Mi familia',
+      items: [{ label: 'Familiares', icon: 'mdi-account-group-outline', accion: () => router.push('/familia') }]
     }]
   : menuBase);
 

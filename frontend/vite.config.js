@@ -15,61 +15,15 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: false, // si 5173 está ocupado (p. ej. por CasaFast) usa el siguiente
-    proxy: {
-      '^/lecturas(?:/|$)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-      '^/api(?:/|$)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '^/user(?:/|$)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '^/alarm(?:/|$)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '^/building(?:/|$)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '/report/': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '^/room(?:/|$)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '^/sensor(?:/|$)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '^/device(?:/|$)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '^/events(?:/|$|\\?)': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      },
-
-      '^/monitoring/': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      }
-    }
+    // Rutas que se envían al backend (puerto 3000). Las páginas de la app usan
+    // otras rutas (/hogar, /aparatos, /consumo...) y las maneja Vue Router.
+    proxy: Object.fromEntries([
+      '^/api(?:/|$)',
+      '^/user(?:/|$)',
+      '^/alarm(?:/|$)',
+      '^/lecturas(?:/|$)',
+      '^/events(?:/|$|\\?)',
+    ].map((ruta) => [ruta, { target: 'http://localhost:3000', changeOrigin: true }])),
   },
 
   resolve: {

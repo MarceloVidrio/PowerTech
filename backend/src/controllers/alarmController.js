@@ -9,18 +9,15 @@ function transicionValida(actual, nuevo) {
   return (TRANSICIONES[actual] || []).includes(nuevo);
 }
 
-// GET /alarm/user/:id
-async function obtenerAlarmasPorUsuario(req, res) {
+// GET /alarm — avisos del hogar
+async function obtenerAlarmas(req, res) {
   const rows = await db.query(`
-    SELECT a.codigoAlarma, a.codigoSensor, a.tipoAlarma, a.nivel, a.estado, a.fechaHora, a.detalle,
-           e.nombreEdificio, s.nombreSala
-    FROM ALARMAS a
-    JOIN EDIFICIOS e ON a.codigoEdificio = e.codigoEdificio
-    JOIN SALAS s ON a.codigoSala = s.codigoSala
-    WHERE e.idUsuario = ?
+    SELECT a.codigoAlarma, a.tipoAlarma, a.nivel, a.estado, a.fechaHora, a.detalle, h.nombre AS nombreHogar
+    FROM ALARMAS a JOIN HOGARES h ON a.idHogar = h.idHogar
+    WHERE h.idUsuario = ?
     ORDER BY (a.estado = 'ACTIVA') DESC, a.fechaHora DESC
     LIMIT 500`, [req.user.owner]);
-  ok(res, rows, rows.length ? 'Alarmas obtenidas' : 'No hay notificaciones pendientes');
+  ok(res, rows, rows.length ? 'Avisos obtenidos' : 'No hay avisos');
 }
 
 // PATCH /alarm/:id/estado
@@ -32,7 +29,7 @@ async function actualizarEstado(req, res) {
   if (!transicionValida(a.estado, nuevo)) throw badRequest(`No se puede cambiar una alarma ${a.estado} a ${nuevo}`);
   // Al dejar de estar ACTIVA se libera claveActiva para permitir una alarma nueva.
   await db.query('UPDATE ALARMAS SET estado = ?, claveActiva = NULL WHERE codigoAlarma = ?', [nuevo, req.params.id]);
-  ok(res, { estado: nuevo }, 'Estado de la alarma actualizado correctamente');
+  ok(res, { estado: nuevo }, 'Estado del aviso actualizado correctamente');
 }
 
-module.exports = { obtenerAlarmasPorUsuario, actualizarEstado, transicionValida };
+module.exports = { obtenerAlarmas, actualizarEstado, transicionValida };

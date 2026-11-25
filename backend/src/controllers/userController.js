@@ -1,4 +1,4 @@
-// Usuarios: inicio de sesión, registro, recuperación de contraseña y técnicos.
+// Usuarios: inicio de sesión, registro del titular, recuperación de contraseña y familia.
 const db = require('../config/db');
 const { ok, badRequest, unauthorized, notFound, conflict } = require('../utils/http');
 const { hashPassword, verifyPassword, signToken, codigoNumerico, sha256, igualSeguro } = require('../utils/security');
@@ -10,8 +10,8 @@ const MINUTOS_CODIGO = 10;
 
 function sesion(u) {
   const owner = u.idPropietario || u.idUsuario;
-  const token = signToken({ sub: u.idUsuario, own: owner, rol: u.rol || 'ADMIN', nombre: u.nombre });
-  return { idUsuario: u.idUsuario, nombre: u.nombre, email: u.email, rol: u.rol || 'ADMIN', token };
+  const token = signToken({ sub: u.idUsuario, own: owner, rol: u.rol || 'TITULAR', nombre: u.nombre });
+  return { idUsuario: u.idUsuario, nombre: u.nombre, email: u.email, rol: u.rol || 'TITULAR', token };
 }
 
 // POST /user/login
@@ -56,9 +56,9 @@ async function crearCuenta({ nombre, email, contrasena }, rol, idPropietario = n
   return { idUsuario: r.insertId, nombre, email, rol };
 }
 
-// POST /user  (registro público: crea la cuenta de administrador de una PyME)
+// POST /user  (registro público: crea la cuenta del titular de un hogar)
 async function crear(req, res) {
-  const usuario = await crearCuenta(validarCuenta(req.body), 'ADMIN');
+  const usuario = await crearCuenta(validarCuenta(req.body), 'TITULAR');
   ok(res, usuario, 'Usuario registrado con éxito', 201);
 }
 
@@ -83,7 +83,7 @@ async function recover(req, res) {
   try {
     await enviarCorreo({
       para: u.email,
-      asunto: 'Código de recuperación - PowerTech',
+      asunto: 'Código de recuperación - PowerTech Hogar',
       texto: `Hola ${u.nombre},\n\nTu código de recuperación de PowerTech es: ${codigo}\n\nEste código vence en ${MINUTOS_CODIGO} minutos.\n\nSi no lo solicitaste, ignora este correo.`,
       html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:30px">
         <h2 style="color:#478D4B">PowerTech</h2>
@@ -138,40 +138,24 @@ async function cambiarContrasena(req, res) {
   ok(res, null, 'Contraseña actualizada correctamente');
 }
 
-// GET /user/:id/perfil
-async function obtenerDatosRelacionados(req, res) {
+// GET /user/familia — miembros de la familia del titular
+async function listarFamilia(req, res) {
   const rows = await db.query(
-    `SELECT e.codigoEdificio, e.nombreEdificio, e.horarioEntrada, e.horarioSalida, s.codigoSala, s.nombreSala
-     FROM EDIFICIOS e LEFT JOIN SALAS s ON e.codigoEdificio = s.codigoEdificio
-     WHERE e.idUsuario = ?`, [req.user.owner]);
-  const mapa = {};
-  for (const row of rows) {
-    if (!mapa[row.codigoEdificio]) {
-      mapa[row.codigoEdificio] = { codigo: row.codigoEdificio, nombre: row.nombreEdificio, horario: `${row.horarioEntrada} - ${row.horarioSalida}`, salas: [] };
-    }
-    if (row.codigoSala) mapa[row.codigoEdificio].salas.push({ codigo: row.codigoSala, nombre: row.nombreSala });
-  }
-  const data = Object.values(mapa);
-  ok(res, data, data.length ? 'Datos recuperados' : 'El usuario no tiene edificios registrados');
-}
-
-// GET /user/tecnicos
-async function listarTecnicos(req, res) {
-  const rows = await db.query('SELECT idUsuario, nombre, email, rol FROM USUARIOS WHERE idPropietario = ? ORDER BY nombre', [req.user.id]);
+    'SELECT idUsuario, nombre, email, rol, ultimoAcceso FROM USUARIOS WHERE idPropietario = ? ORDER BY nombre', [req.user.id]);
   ok(res, rows);
 }
 
-// POST /user/tecnicos — el administrador da de alta a un técnico de su empresa.
-async function crearTecnico(req, res) {
-  const usuario = await crearCuenta(validarCuenta(req.body), 'TECNICO', req.user.id);
-  ok(res, usuario, 'Técnico registrado correctamente', 201);
+// POST /user/familia — el titular invita a un familiar (solo podrá consultar).
+async function crearFamiliar(req, res) {
+  const usuario = await crearCuenta(validarCuenta(req.body), 'FAMILIAR', req.user.id);
+  ok(res, usuario, 'Familiar agregado. Ya puede iniciar sesión con su correo y contraseña.', 201);
 }
 
-// DELETE /user/tecnicos/:id
-async function eliminarTecnico(req, res) {
+// DELETE /user/familia/:id
+async function eliminarFamiliar(req, res) {
   const r = await db.query('DELETE FROM USUARIOS WHERE idUsuario = ? AND idPropietario = ?', [req.params.id, req.user.id]);
-  if (!r.affectedRows) throw notFound('Técnico no encontrado');
-  ok(res, null, 'Técnico eliminado');
+  if (!r.affectedRows) throw notFound('Familiar no encontrado');
+  ok(res, null, 'Familiar eliminado');
 }
 
-module.exports = { validarCuenta, crearCuenta, login, crear, recover, verificarCodigo, cambiarContrasena, obtenerDatosRelacionados, listarTecnicos, crearTecnico, eliminarTecnico };
+module.exports = { validarCuenta, crearCuenta, login, crear, recover, verificarCodigo, cambiarContrasena, listarFamilia, crearFamiliar, eliminarFamiliar };

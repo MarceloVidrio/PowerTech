@@ -1,6 +1,6 @@
 // Administrador del sistema (rol SUPERADMIN).
-// Ve a todos los usuarios de PowerTech y puede corregir sus problemas:
-// datos de la cuenta, contraseña, bloqueos, rol, activación, sensores y alarmas.
+// Ve a todos los usuarios de PowerTech Hogar y puede corregir sus problemas:
+// datos de la cuenta, contraseña, bloqueos, rol, activación, medidores y avisos.
 // Todo lo que hace queda registrado en BITACORA_ADMIN.
 const crypto = require('crypto');
 const db = require('../config/db');
@@ -10,8 +10,9 @@ const { texto, contrasenaSegura, EMAIL_RE } = require('../utils/validar');
 const { validarCuenta, crearCuenta } = require('./userController');
 const { desbloquearCorreo, correoBloqueado } = require('../middleware/rateLimit');
 
-const ROLES = ['SUPERADMIN', 'ADMIN', 'TECNICO'];
-const NOMBRE_ROL = { SUPERADMIN: 'Administrador del sistema', ADMIN: 'Administrador de empresa', TECNICO: 'Técnico' };
+const ROLES = ['SUPERADMIN', 'TITULAR', 'FAMILIAR'];
+const NOMBRE_ROL = { SUPERADMIN: 'Administrador del sistema', TITULAR: 'Titular del hogar', FAMILIAR: 'Familiar' };
+const HORAS_SIN_SENAL = 24;
 
 /* ---------------------------- utilidades ---------------------------- */
 
@@ -39,26 +40,32 @@ function detectarProblemas(u) {
   if (!u.activo) p.push('Cuenta desactivada');
   if (u.bloqueadoLogin) p.push('Bloqueada por intentos fallidos de inicio de sesión');
   if (u.bloqueoRecuperacion) p.push('Código de recuperación bloqueado por intentos fallidos');
-  if (u.rol === 'TECNICO' && !u.idPropietario) p.push('Técnico sin empresa asignada');
-  if (u.rol === 'TECNICO' && u.idPropietario && u.propietarioActivo === 0) p.push('Su empresa está desactivada');
-  if (Number(u.sensoresInactivos) > 0) p.push(`${u.sensoresInactivos} sensor(es) desactivado(s)`);
-  if (Number(u.alarmasActivas) > 0) p.push(`${u.alarmasActivas} alarma(s) activa(s)`);
+  if (u.rol === 'FAMILIAR' && !u.idPropietario) p.push('Familiar sin hogar asignado');
+  if (u.rol === 'FAMILIAR' && u.idPropietario && u.propietarioActivo === 0) p.push('La cuenta del titular de su hogar está desactivada');
+  if (u.rol === 'TITULAR') {
+    if (!u.idHogar) p.push('Aún no configura su hogar');
+    else if (!u.codigoMedidor) p.push('Su hogar no tiene sensor registrado');
+    else if (!u.medidorActivo) p.push('El sensor está pausado');
+    else if (!u.ultimaLectura) p.push('El sensor nunca ha enviado lecturas');
+    else if (Number(u.horasSinLectura) >= HORAS_SIN_SENAL) p.push(`El sensor no envía lecturas desde hace ${Math.floor(Number(u.horasSinLectura) / 24) || 1} día(s)`);
+  }
+  if (Number(u.alarmasActivas) > 0) p.push(`${u.alarmasActivas} aviso(s) activo(s)`);
   if (!u.ultimoAcceso) p.push('Nunca ha iniciado sesión');
   return p;
 }
 
 // Reglas para cambiar el rol de una cuenta. Regresa un mensaje de error o null.
-function validarCambioRol({ actual, nuevoRol, idPropietario, idAdmin, edificios = 0, sensores = 0, tecnicos = 0, propietario }) {
+function validarCambioRol({ actual, nuevoRol, idPropietario, idAdmin, tieneHogar = false, familiares = 0, propietario }) {
   if (!ROLES.includes(nuevoRol)) return 'Rol no válido';
   if (actual.idUsuario === idAdmin && nuevoRol !== actual.rol) return 'No puedes cambiar tu propio rol';
-  if (nuevoRol === 'TECNICO') {
-    if (!idPropietario) return 'Un técnico debe pertenecer a una empresa (elige su administrador)';
-    if (idPropietario === actual.idUsuario) return 'Un técnico no puede pertenecer a sí mismo';
-    if (!propietario || propietario.rol !== 'ADMIN') return 'La empresa elegida no existe o no es un administrador de empresa';
+  if (nuevoRol === 'FAMILIAR') {
+    if (!idPropietario) return 'Un familiar debe pertenecer a un hogar (elige al titular)';
+    if (idPropietario === actual.idUsuario) return 'Un familiar no puede pertenecer a sí mismo';
+    if (!propietario || propietario.rol !== 'TITULAR') return 'El titular elegido no existe o no es titular de un hogar';
   }
-  if (actual.rol !== nuevoRol && (actual.rol === 'ADMIN')) {
-    if (tecnicos > 0) return 'Esta cuenta tiene técnicos. Elimínalos o reasígnalos antes de cambiar su rol';
-    if (edificios > 0 || sensores > 0) return 'Esta cuenta tiene edificios o sensores. No se le puede cambiar el rol sin perder el acceso a ellos';
+  if (actual.rol !== nuevoRol && actual.rol === 'TITULAR') {
+    if (familiares > 0) return 'Esta cuenta tiene familiares. Elimínalos o muévelos antes de cambiar su rol';
+    if (tieneHogar) return 'Esta cuenta tiene un hogar configurado. No se le puede cambiar el rol sin perder el acceso a él';
   }
   return null;
 }
@@ -66,18 +73,22 @@ function validarCambioRol({ actual, nuevoRol, idPropietario, idAdmin, edificios 
 const SELECT_USUARIO = `
   SELECT u.idUsuario, u.nombre, u.email, u.rol, u.activo, u.idPropietario, u.fechaRegistro, u.ultimoAcceso,
          p.nombre AS propietario, p.activo AS propietarioActivo,
-         (SELECT COUNT(*) FROM EDIFICIOS e WHERE e.idUsuario = u.idUsuario) AS edificios,
-         (SELECT COUNT(*) FROM SENSORES s WHERE s.idUsuario = u.idUsuario) AS sensores,
-         (SELECT COUNT(*) FROM SENSORES s WHERE s.idUsuario = u.idUsuario AND s.activo = 0) AS sensoresInactivos,
-         (SELECT COUNT(*) FROM USUARIOS t WHERE t.idPropietario = u.idUsuario) AS tecnicos,
-         (SELECT COUNT(*) FROM ALARMAS a JOIN EDIFICIOS e2 ON e2.codigoEdificio = a.codigoEdificio
-            WHERE e2.idUsuario = u.idUsuario AND a.estado = 'ACTIVA') AS alarmasActivas,
+         h.idHogar, h.nombre AS nombreHogar, h.ciudad, h.tarifa, m.codigoMedidor, m.activo AS medidorActivo,
+         (SELECT MAX(l.fechaHora) FROM LECTURAS l WHERE l.codigoMedidor = m.codigoMedidor) AS ultimaLectura,
+         TIMESTAMPDIFF(HOUR, (SELECT MAX(l.fechaHora) FROM LECTURAS l WHERE l.codigoMedidor = m.codigoMedidor), NOW()) AS horasSinLectura,
+         (SELECT COUNT(*) FROM APARATOS ap WHERE ap.idHogar = h.idHogar) AS aparatos,
+         (SELECT COUNT(*) FROM USUARIOS f WHERE f.idPropietario = u.idUsuario) AS familiares,
+         (SELECT COUNT(*) FROM ALARMAS a WHERE a.idHogar = h.idHogar AND a.estado = 'ACTIVA') AS alarmasActivas,
          EXISTS(SELECT 1 FROM RECUPERACION_CONTRASENA r WHERE r.idUsuario = u.idUsuario AND r.usado = 0
             AND r.intentos >= 5 AND r.fechaExpiracion > NOW()) AS bloqueoRecuperacion
-  FROM USUARIOS u LEFT JOIN USUARIOS p ON p.idUsuario = u.idPropietario`;
+  FROM USUARIOS u
+  LEFT JOIN USUARIOS p ON p.idUsuario = u.idPropietario
+  LEFT JOIN HOGARES h ON h.idUsuario = u.idUsuario
+  LEFT JOIN MEDIDORES m ON m.idHogar = h.idHogar`;
 
 function completar(u) {
-  const r = { ...u, activo: !!u.activo, bloqueoRecuperacion: !!u.bloqueoRecuperacion, bloqueadoLogin: correoBloqueado(u.email) };
+  const r = { ...u, activo: !!u.activo, bloqueoRecuperacion: !!u.bloqueoRecuperacion, bloqueadoLogin: correoBloqueado(u.email),
+    medidorActivo: u.medidorActivo === null || u.medidorActivo === undefined ? null : !!u.medidorActivo };
   r.nombreRol = NOMBRE_ROL[r.rol] || r.rol;
   r.problemas = detectarProblemas(r);
   return r;
@@ -95,25 +106,25 @@ async function buscarUsuario(id) {
 async function resumen(req, res) {
   const [u] = await db.query(`
     SELECT COUNT(*) AS total,
-           SUM(rol = 'SUPERADMIN') AS superadmins, SUM(rol = 'ADMIN') AS empresas, SUM(rol = 'TECNICO') AS tecnicos,
+           SUM(rol = 'SUPERADMIN') AS superadmins, SUM(rol = 'TITULAR') AS titulares, SUM(rol = 'FAMILIAR') AS familiares,
            SUM(activo = 0) AS desactivados
     FROM USUARIOS`);
   const [d] = await db.query(`
-    SELECT (SELECT COUNT(*) FROM EDIFICIOS) AS edificios,
-           (SELECT COUNT(*) FROM SENSORES) AS sensores,
+    SELECT (SELECT COUNT(*) FROM HOGARES) AS hogares,
+           (SELECT COUNT(*) FROM MEDIDORES) AS medidores,
            (SELECT COUNT(*) FROM ALARMAS WHERE estado = 'ACTIVA') AS alarmasActivas`);
   const num = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, Number(v) || 0]));
   ok(res, { ...num(u), ...num(d) });
 }
 
-// GET /api/admin/usuarios?q=texto&rol=ADMIN
+// GET /api/admin/usuarios?q=texto&rol=TITULAR
 async function listarUsuarios(req, res) {
   const q = texto(req.query.q || '');
   const rol = ROLES.includes(req.query.rol) ? req.query.rol : '';
   const like = `%${q}%`;
   const rows = await db.query(`${SELECT_USUARIO}
     WHERE (? = '' OR u.nombre LIKE ? OR u.email LIKE ?) AND (? = '' OR u.rol = ?)
-    ORDER BY FIELD(u.rol, 'SUPERADMIN', 'ADMIN', 'TECNICO'), u.nombre
+    ORDER BY FIELD(u.rol, 'SUPERADMIN', 'TITULAR', 'FAMILIAR'), u.nombre
     LIMIT 500`, [q, like, like, rol, rol]);
   ok(res, rows.map(completar));
 }
@@ -121,28 +132,20 @@ async function listarUsuarios(req, res) {
 // GET /api/admin/usuarios/:id — todo lo necesario para revisar y corregir una cuenta.
 async function detalleUsuario(req, res) {
   const usuario = await buscarUsuario(req.params.id);
-  const duenio = usuario.idPropietario || usuario.idUsuario; // un técnico ve los datos de su empresa
-  const [tecnicos, edificios, sensores, alarmas, bitacora] = await Promise.all([
+  const duenio = usuario.idPropietario || usuario.idUsuario; // un familiar ve el hogar de su titular
+  const hogares = await db.query(`
+    SELECT h.*, m.codigoMedidor, m.nombre AS nombreMedidor, m.modelo AS modeloMedidor, m.activo AS medidorActivo,
+           (SELECT MAX(l.fechaHora) FROM LECTURAS l WHERE l.codigoMedidor = m.codigoMedidor) AS ultimaLectura,
+           (SELECT COUNT(*) FROM LECTURAS l WHERE l.codigoMedidor = m.codigoMedidor AND l.fechaHora >= NOW() - INTERVAL 1 DAY) AS lecturas24h
+    FROM HOGARES h LEFT JOIN MEDIDORES m ON m.idHogar = h.idHogar WHERE h.idUsuario = ?`, [duenio]);
+  const h = hogares[0] || null;
+  const [familiares, aparatos, alarmas, bitacora] = await Promise.all([
     db.query('SELECT idUsuario, nombre, email, activo, ultimoAcceso FROM USUARIOS WHERE idPropietario = ? ORDER BY nombre', [usuario.idUsuario]),
-    db.query(`
-      SELECT e.codigoEdificio, e.nombreEdificio, e.horarioEntrada, e.horarioSalida, e.codigoTarifa,
-             (SELECT COUNT(*) FROM SALAS s WHERE s.codigoEdificio = e.codigoEdificio) AS salas,
-             (SELECT COUNT(*) FROM DISPOSITIVOS d JOIN SALAS s2 ON s2.codigoSala = d.codigoSala
-                WHERE s2.codigoEdificio = e.codigoEdificio) AS dispositivos
-      FROM EDIFICIOS e WHERE e.idUsuario = ? ORDER BY e.nombreEdificio`, [duenio]),
-    db.query(`
-      SELECT s.codigoSensor, s.nombreSensor, s.tipoSensor, s.activo, s.codigoDispositivo, d.nombre AS dispositivo,
-             (SELECT MAX(l.fechaHora) FROM LECTURAS l WHERE l.codigoSensor = s.codigoSensor) AS ultimaLectura
-      FROM SENSORES s LEFT JOIN DISPOSITIVOS d ON d.codigoDispositivo = s.codigoDispositivo
-      WHERE s.idUsuario = ? ORDER BY s.codigoSensor`, [duenio]),
-    db.query(`
-      SELECT a.codigoAlarma, a.codigoSensor, a.tipoAlarma, a.nivel, a.estado, a.fechaHora, a.detalle,
-             e.nombreEdificio, s.nombreSala
-      FROM ALARMAS a
-      JOIN EDIFICIOS e ON a.codigoEdificio = e.codigoEdificio
-      JOIN SALAS s ON a.codigoSala = s.codigoSala
-      WHERE e.idUsuario = ? AND a.estado <> 'CERRADA'
-      ORDER BY a.nivel DESC, a.fechaHora DESC LIMIT 100`, [duenio]),
+    h ? db.query('SELECT idAparato, nombre, tipo, cuarto, potenciaW, horasDia, controlUrl FROM APARATOS WHERE idHogar = ? ORDER BY cuarto, nombre', [h.idHogar]) : [],
+    h ? db.query(`
+      SELECT codigoAlarma, tipoAlarma, nivel, estado, fechaHora, detalle
+      FROM ALARMAS WHERE idHogar = ? AND estado <> 'CERRADA'
+      ORDER BY nivel DESC, fechaHora DESC LIMIT 100`, [h.idHogar]) : [],
     db.query(`
       SELECT b.idBitacora, b.accion, b.detalle, b.fechaHora, a.nombre AS admin
       FROM BITACORA_ADMIN b LEFT JOIN USUARIOS a ON a.idUsuario = b.idAdmin
@@ -150,17 +153,25 @@ async function detalleUsuario(req, res) {
   ]);
   ok(res, {
     usuario,
-    tecnicos: tecnicos.map((t) => ({ ...t, activo: !!t.activo })),
-    edificios,
-    sensores: sensores.map((s) => ({ ...s, activo: !!s.activo })),
+    familiares: familiares.map((f) => ({ ...f, activo: !!f.activo })),
+    hogar: h && {
+      idHogar: h.idHogar, nombre: h.nombre, ciudad: h.ciudad, tarifa: h.tarifa, personas: h.personas,
+      modoVacaciones: !!h.modoVacaciones, consumoBaseW: Number(h.consumoBaseW), consumoNocheW: Number(h.consumoNocheW),
+      umbralAltoW: Number(h.umbralAltoW), horaDormirInicio: String(h.horaDormirInicio).slice(0, 5), horaDormirFin: String(h.horaDormirFin).slice(0, 5),
+      medidor: h.codigoMedidor ? {
+        codigoMedidor: h.codigoMedidor, nombre: h.nombreMedidor, modelo: h.modeloMedidor, activo: !!h.medidorActivo,
+        ultimaLectura: h.ultimaLectura, lecturas24h: Number(h.lecturas24h),
+      } : null,
+    },
+    aparatos: aparatos.map((a) => ({ ...a, conEnchufe: !!a.controlUrl, controlUrl: undefined })),
     alarmas,
     bitacora,
   });
 }
 
-// GET /api/admin/empresas — administradores de empresa, para asignar técnicos.
-async function listarEmpresas(req, res) {
-  ok(res, await db.query("SELECT idUsuario, nombre, email, activo FROM USUARIOS WHERE rol = 'ADMIN' ORDER BY nombre"));
+// GET /api/admin/titulares — titulares de hogar, para asignar familiares.
+async function listarTitulares(req, res) {
+  ok(res, await db.query("SELECT idUsuario, nombre, email, activo FROM USUARIOS WHERE rol = 'TITULAR' ORDER BY nombre"));
 }
 
 // GET /api/admin/bitacora
@@ -182,13 +193,13 @@ async function propietarioDe(id) {
 
 // POST /api/admin/usuarios — crea cualquier tipo de cuenta.
 async function crearUsuario(req, res) {
-  const rol = String(req.body.rol || 'ADMIN').toUpperCase();
+  const rol = String(req.body.rol || 'TITULAR').toUpperCase();
   if (!ROLES.includes(rol)) throw badRequest('Rol no válido');
   let idPropietario = null;
-  if (rol === 'TECNICO') {
+  if (rol === 'FAMILIAR') {
     idPropietario = Number(req.body.idPropietario) || null;
     const p = await propietarioDe(idPropietario);
-    if (!p || p.rol !== 'ADMIN') throw badRequest('Elige la empresa (administrador) a la que pertenece el técnico');
+    if (!p || p.rol !== 'TITULAR') throw badRequest('Elige el titular del hogar al que pertenece el familiar');
   }
   const generada = !req.body.contrasena;
   const contrasena = generada ? contrasenaTemporal() : req.body.contrasena;
@@ -198,7 +209,7 @@ async function crearUsuario(req, res) {
   ok(res, { ...usuario, contrasenaTemporal: generada ? contrasena : undefined }, 'Cuenta creada correctamente', 201);
 }
 
-// PATCH /api/admin/usuarios/:id — corrige nombre, correo, rol, empresa o activación.
+// PATCH /api/admin/usuarios/:id — corrige nombre, correo, rol, hogar o activación.
 async function actualizarUsuario(req, res) {
   const actual = await buscarUsuario(req.params.id);
   const b = req.body || {};
@@ -227,16 +238,15 @@ async function actualizarUsuario(req, res) {
 
   if (b.rol !== undefined || b.idPropietario !== undefined) {
     const nuevoRol = String(b.rol || actual.rol).toUpperCase();
-    const idPropietario = nuevoRol === 'TECNICO' ? (Number(b.idPropietario ?? actual.idPropietario) || null) : null;
+    const idPropietario = nuevoRol === 'FAMILIAR' ? (Number(b.idPropietario ?? actual.idPropietario) || null) : null;
     const propietario = await propietarioDe(idPropietario);
     const error = validarCambioRol({
       actual, nuevoRol, idPropietario, idAdmin: req.user.id,
-      edificios: Number(actual.edificios), sensores: Number(actual.sensores), tecnicos: Number(actual.tecnicos),
-      propietario,
+      tieneHogar: !!actual.idHogar, familiares: Number(actual.familiares), propietario,
     });
     if (error) throw badRequest(error);
     if (nuevoRol !== actual.rol) { cambios.rol = nuevoRol; notas.push(`rol: ${NOMBRE_ROL[actual.rol]} → ${NOMBRE_ROL[nuevoRol]}`); }
-    if (idPropietario !== (actual.idPropietario || null)) { cambios.idPropietario = idPropietario; notas.push(`empresa: ${actual.propietario || 'ninguna'} → ${propietario ? propietario.nombre : 'ninguna'}`); }
+    if (idPropietario !== (actual.idPropietario || null)) { cambios.idPropietario = idPropietario; notas.push(`hogar de: ${actual.propietario || 'nadie'} → ${propietario ? propietario.nombre : 'nadie'}`); }
   }
 
   if (b.activo !== undefined) {
@@ -285,41 +295,42 @@ async function eliminarUsuario(req, res) {
   if (u.idUsuario === req.user.id) throw forbidden('No puedes eliminar tu propia cuenta');
   await db.transaction(async (q) => {
     await registrar(q, req, u, 'ELIMINAR_CUENTA',
-      `${NOMBRE_ROL[u.rol]} · ${u.email} · edificios: ${u.edificios}, sensores: ${u.sensores}, técnicos: ${u.tecnicos}`);
+      `${NOMBRE_ROL[u.rol]} · ${u.email}${u.idHogar ? ` · hogar «${u.nombreHogar}», aparatos: ${u.aparatos}` : ''}, familiares: ${u.familiares}`);
     await q('DELETE FROM USUARIOS WHERE idUsuario = ?', [u.idUsuario]);
   });
   ok(res, null, 'Cuenta eliminada');
 }
 
-// PATCH /api/admin/sensores/:codigo — activa o desactiva un sensor de cualquier cuenta.
-async function cambiarSensor(req, res) {
-  const rows = await db.query(
-    'SELECT s.codigoSensor, s.activo, u.idUsuario, u.nombre FROM SENSORES s JOIN USUARIOS u ON u.idUsuario = s.idUsuario WHERE s.codigoSensor = ?',
-    [req.params.codigo]);
+// PATCH /api/admin/medidores/:codigo — activa o desactiva el medidor de cualquier hogar.
+async function cambiarMedidor(req, res) {
+  const rows = await db.query(`
+    SELECT m.codigoMedidor, u.idUsuario, u.nombre
+    FROM MEDIDORES m JOIN HOGARES h ON h.idHogar = m.idHogar JOIN USUARIOS u ON u.idUsuario = h.idUsuario
+    WHERE m.codigoMedidor = ?`, [req.params.codigo]);
   if (!rows.length) throw notFound('Sensor no encontrado');
   const activo = !!req.body.activo;
-  await db.query('UPDATE SENSORES SET activo = ? WHERE codigoSensor = ?', [activo ? 1 : 0, req.params.codigo]);
-  await registrar(db.query, req, rows[0], 'SENSOR', `${req.params.codigo} ${activo ? 'activado' : 'desactivado'}`);
-  ok(res, { activo }, `Sensor ${activo ? 'activado' : 'desactivado'}`);
+  await db.query('UPDATE MEDIDORES SET activo = ? WHERE codigoMedidor = ?', [activo ? 1 : 0, req.params.codigo]);
+  await registrar(db.query, req, rows[0], 'MEDIDOR', `${req.params.codigo} ${activo ? 'activado' : 'desactivado'}`);
+  ok(res, { activo }, `Sensor ${activo ? 'activado' : 'pausado'}`);
 }
 
-// POST /api/admin/alarmas/:codigo/cerrar — cierra una alarma que se quedó abierta.
+// POST /api/admin/alarmas/:codigo/cerrar — cierra un aviso que se quedó abierto.
 async function cerrarAlarma(req, res) {
   const rows = await db.query(`
     SELECT a.codigoAlarma, a.estado, u.idUsuario, u.nombre
-    FROM ALARMAS a JOIN EDIFICIOS e ON e.codigoEdificio = a.codigoEdificio JOIN USUARIOS u ON u.idUsuario = e.idUsuario
+    FROM ALARMAS a JOIN HOGARES h ON h.idHogar = a.idHogar JOIN USUARIOS u ON u.idUsuario = h.idUsuario
     WHERE a.codigoAlarma = ?`, [req.params.codigo]);
-  if (!rows.length) throw notFound('Alarma no encontrada');
-  if (rows[0].estado === 'CERRADA') return ok(res, null, 'La alarma ya estaba cerrada');
+  if (!rows.length) throw notFound('Aviso no encontrado');
+  if (rows[0].estado === 'CERRADA') return ok(res, null, 'El aviso ya estaba cerrado');
   await db.query("UPDATE ALARMAS SET estado = 'CERRADA', claveActiva = NULL WHERE codigoAlarma = ?", [req.params.codigo]);
   await registrar(db.query, req, rows[0], 'CERRAR_ALARMA', req.params.codigo);
-  ok(res, null, 'Alarma cerrada');
+  ok(res, null, 'Aviso cerrado');
 }
 
 module.exports = {
-  resumen, listarUsuarios, detalleUsuario, listarEmpresas, bitacora,
+  resumen, listarUsuarios, detalleUsuario, listarTitulares, bitacora,
   crearUsuario, actualizarUsuario, restablecerContrasena, desbloquear, eliminarUsuario,
-  cambiarSensor, cerrarAlarma,
+  cambiarMedidor, cerrarAlarma,
   // para pruebas
   contrasenaTemporal, detectarProblemas, validarCambioRol,
 };

@@ -1,5 +1,5 @@
 // Conexión en tiempo real con el backend (Server-Sent Events).
-// Cuando llega una alarma nueva: muestra un aviso, recarga la lista de alarmas
+// Cuando llega un aviso nuevo: lo muestra, recarga la lista de avisos
 // y, si el usuario dio permiso, lanza una notificación del navegador.
 import axios from "axios";
 import { watch } from "vue";
@@ -24,10 +24,10 @@ export function iniciarTiempoReal({ userStore, alarmStore, notify }) {
 
       fuente.addEventListener("alarma", (e) => {
         const a = JSON.parse(e.data);
-        notify.show(`Alarma nivel ${a.nivel}: ${a.tipoAlarma}`, a.nivel >= 4 ? "error" : "warning");
-        if (userStore.usuario?.idUsuario) alarmStore.listarAlarmas({ id: userStore.usuario.idUsuario });
+        notify.show(a.tipoAlarma, a.nivel >= 4 ? "error" : "warning");
+        if (userStore.usuario) alarmStore.listarAlarmas();
         if ("Notification" in window && Notification.permission === "granted" && document.visibilityState !== "visible") {
-          new Notification(`PowerTech · ${a.tipoAlarma}`, { body: a.detalle, icon: "/logopower.png", tag: a.codigoAlarma });
+          new Notification(`PowerTech Hogar · ${a.tipoAlarma}`, { body: a.detalle, icon: "/logopower.png", tag: a.codigoAlarma });
         }
         window.dispatchEvent(new CustomEvent("powertech:alarma", { detail: a }));
       });
